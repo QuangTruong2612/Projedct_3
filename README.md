@@ -1,37 +1,38 @@
-# Recruitment AI — Hệ thống đánh giá CV tự động
+# Recruitment AI — Automated CV Evaluation System
 
-Công cụ AI hỗ trợ tuyển dụng: tự động phân tích CV và JD (Job Description), đối chiếu mức độ phù hợp, và đưa ra điểm số + giải thích chi tiết giúp HR sàng lọc ứng viên nhanh hơn.
+An AI-powered recruitment tool: automatically parses CVs and Job Descriptions (JDs), matches candidates against requirements, and produces a score plus a detailed explanation to help HR teams screen candidates faster.
 
-Đồ án thực tập tốt nghiệp.
+Graduation internship project.
 
 ---
 
-## Mục lục
+## Table of Contents
 
-- [Tính năng](#tính-năng)
-- [Kiến trúc hệ thống](#kiến-trúc-hệ-thống)
-- [Công nghệ sử dụng](#công-nghệ-sử-dụng)
-- [Cài đặt](#cài-đặt)
-- [Cấu hình biến môi trường](#cấu-hình-biến-môi-trường)
-- [Chạy ứng dụng](#chạy-ứng-dụng)
+- [Features](#features)
+- [System Architecture](#system-architecture)
+- [Tech Stack](#tech-stack)
+- [Installation](#installation)
+- [Environment Configuration](#environment-configuration)
+- [Running the App](#running-the-app)
 - [API Endpoints](#api-endpoints)
-- [Cấu trúc project](#cấu-trúc-project)
-- [Pipeline sinh dữ liệu &amp; training model](#pipeline-sinh-dữ-liệu--training-model)
+- [Project Structure](#project-structure)
+- [Data Generation &amp; Model Training Pipeline](#data-generation--model-training-pipeline)
+- [Why a Trained Model Can Outperform the Hardcoded Formula](#why-a-trained-model-can-outperform-the-hardcoded-formula)
 - [Roadmap](#roadmap)
 
 ---
 
-## Tính năng
+## Features
 
-- **Trích xuất thông tin CV/JD tự động** bằng LLM — parse CV (PDF/DOCX) và JD thành dữ liệu có cấu trúc (kỹ năng, kinh nghiệm, học vấn, dự án...).
-- **Chấm điểm 2 lớp**:
-  1. *Rule-based matching*: so khớp kỹ năng bằng embedding similarity, tính điểm kinh nghiệm/học vấn theo công thức trọng số.
-  2. *LLM scoring*: LLM xem xét lại kết quả rule-based, tinh chỉnh điểm số cuối và sinh giải thích (điểm mạnh, điểm thiếu sót) bằng ngôn ngữ tự nhiên.
-- **Đánh giá 1-CV-1-JD** (`/api/v1/evaluate`) và **xếp hạng nhiều CV cho 1 JD** (`/api/v1/rank`).
-- **Hỗ trợ nhiều nhà cung cấp LLM/embedding** (Anthropic, OpenAI, mô hình mã nguồn mở qua Ollama/sentence-transformers) — đổi qua biến môi trường, không cần sửa code.
-- **Frontend đơn giản** (HTML/CSS/JS thuần) để demo upload CV/JD và xem kết quả trực quan.
+- **Automatic CV/JD extraction** via LLM — parses CVs (PDF/DOCX) and JDs into structured data (skills, experience, education, projects...).
+- **Two-layer scoring**:
+  1. *Rule-based matching*: skill matching via embedding similarity, experience/education scores via a weighted formula.
+  2. *LLM scoring*: the LLM reviews the rule-based result, refines the final score, and generates a natural-language explanation (strengths, gaps).
+- **Single CV-JD evaluation** (`/api/v1/evaluate`) and **ranking multiple CVs against one JD** (`/api/v1/rank`).
+- **Multi-provider support** for LLM/embeddings (Anthropic, OpenAI, open-source models via Ollama/sentence-transformers) — switch via environment variables, no code changes needed.
+- **Simple frontend** (plain HTML/CSS/JS) to demo uploading CVs/JDs and viewing results.
 
-## Kiến trúc hệ thống
+## System Architecture
 
 ```
                     ┌──────────────┐
@@ -47,40 +48,40 @@ Công cụ AI hỗ trợ tuyển dụng: tự động phân tích CV và JD (Job
                            ▼
                  ┌───────────────────┐
                  │ Matching Service   │  (embedding similarity +
-                 │ → rule_based_score │   công thức trọng số)
+                 │ → rule_based_score │   weighted formula)
                  └─────────┬─────────┘
                            ▼
                  ┌───────────────────┐
-                 │ Scoring Service    │  (LLM tinh chỉnh điểm +
-                 │ → final_score      │   giải thích strengths/gaps)
+                 │ Scoring Service    │  (LLM refines score +
+                 │ → final_score      │   explains strengths/gaps)
                  └─────────┬─────────┘
                            ▼
                    CandidateEvaluation
-                (trả về API / hiển thị FE)
+                (returned via API / shown in FE)
 ```
 
-Toàn bộ luồng trên được điều phối bởi `RecruitmentPipeline` (`app/services/pipeline.py`).
+The whole flow is orchestrated by `RecruitmentPipeline` (`app/services/pipeline.py`).
 
-## Công nghệ sử dụng
+## Tech Stack
 
-| Thành phần         | Công nghệ                                                                           |
-| -------------------- | ------------------------------------------------------------------------------------- |
-| Backend              | FastAPI, Pydantic v2                                                                  |
-| LLM orchestration    | LangChain (langchain-core, langchain-anthropic, langchain-openai, langchain-ollama)   |
-| LLM provider         | Anthropic Claude (mặc định), OpenAI, hoặc mô hình mở qua Ollama                |
-| Embedding            | intfloat/multilingual-e5-large (mặc định, mã nguồn mở) hoặc Voyage AI / OpenAI |
-| Đọc file CV        | pypdf, docx2txt                                                                       |
-| Database (dự kiến) | PostgreSQL + pgvector (qua SQLAlchemy)                                                |
-| Frontend             | HTML/CSS/JS thuần                                                                    |
-| Testing              | pytest                                                                                |
+| Component          | Technology                                                                          |
+| ------------------ | ----------------------------------------------------------------------------------- |
+| Backend            | FastAPI, Pydantic v2                                                                |
+| LLM orchestration  | LangChain (langchain-core, langchain-anthropic, langchain-openai, langchain-ollama) |
+| LLM provider       | Anthropic Claude (default), OpenAI, or open models via Ollama                       |
+| Embedding          | intfloat/multilingual-e5-large (default, open-source) or Voyage AI / OpenAI         |
+| CV file reading    | pypdf, docx2txt                                                                     |
+| Database (planned) | PostgreSQL + pgvector (via SQLAlchemy)                                              |
+| Frontend           | Plain HTML/CSS/JS                                                                   |
+| Testing            | pytest                                                                              |
 
-## Cài đặt
+## Installation
 
-**Yêu cầu:** Python 3.11+
+**Requirements:** Python 3.11+
 
 ```bash
 git clone <repo-url>
-cd thực_tập_tốt_nghiệp
+cd thuc_tap_tot_nghiep
 
 python -m venv venv
 venv\Scripts\activate          # Windows
@@ -89,46 +90,46 @@ venv\Scripts\activate          # Windows
 pip install -r requirements.txt
 ```
 
-> Nếu dùng `EMBEDDING_PROVIDER=open_source`, lần chạy đầu sẽ tự tải model `intfloat/multilingual-e5-large` (~1.1GB) — cần kết nối mạng ổn định.
+> If using `EMBEDDING_PROVIDER=open_source`, the first run will automatically download the `intfloat/multilingual-e5-large` model (~1.1GB) — a stable internet connection is required.
 
-## Cấu hình biến môi trường
+## Environment Configuration
 
-Copy file mẫu rồi điền giá trị thật:
+Copy the sample file and fill in real values:
 
 ```bash
 copy .env.example .env      # Windows
 # cp .env.example .env      # macOS/Linux
 ```
 
-| Biến                     | Mô tả                                                       | Giá trị mặc định              |
-| ------------------------- | ------------------------------------------------------------- | ---------------------------------- |
-| `LLM_PROVIDER`          | `anthropic` / `openai` / `open_source`                  | `anthropic`                      |
-| `LLM_MODEL_NAME`        | Tên model LLM                                                | `claude-sonnet-5`                |
-| `LLM_TEMPERATURE`       | Độ ngẫu nhiên của LLM (0 = ổn định nhất)             | `0.0`                            |
-| `ANTHROPIC_API_KEY`     | API key Anthropic (bắt buộc nếu`LLM_PROVIDER=anthropic`) | —                                 |
-| `ANTHROPIC_BASE_URL`    | Endpoint tuỳ chỉnh (nếu dùng proxy)                       | `https://api.anthropic.com`      |
-| `EMBEDDING_PROVIDER`    | `voyage` / `openai` / `open_source`                     | `open_source`                    |
-| `EMBEDDING_MODEL_NAME`  | Tên model embedding                                          | `intfloat/multilingual-e5-large` |
-| `SKILL_MATCH_THRESHOLD` | Ngưỡng cosine similarity để coi 2 kỹ năng là khớp     | `0.85`                           |
-| `MAX_INPUT_TOKENS`      | Giới hạn token đầu vào cho LLM                           | `4000`                           |
+| Variable                  | Description                                                | Default                            |
+| ------------------------- | ---------------------------------------------------------- | ---------------------------------- |
+| `LLM_PROVIDER`          | `anthropic` / `openai` / `open_source`               | `anthropic`                      |
+| `LLM_MODEL_NAME`        | LLM model name                                             | `claude-sonnet-5`                |
+| `LLM_TEMPERATURE`       | LLM randomness (0 = most deterministic)                    | `0.0`                            |
+| `ANTHROPIC_API_KEY`     | Anthropic API key (required if`LLM_PROVIDER=anthropic`)  | —                                 |
+| `ANTHROPIC_BASE_URL`    | Custom endpoint (if using a proxy)                         | `https://api.anthropic.com`      |
+| `EMBEDDING_PROVIDER`    | `voyage` / `openai` / `open_source`                  | `open_source`                    |
+| `EMBEDDING_MODEL_NAME`  | Embedding model name                                       | `intfloat/multilingual-e5-large` |
+| `SKILL_MATCH_THRESHOLD` | Cosine similarity threshold to consider two skills a match | `0.85`                           |
+| `MAX_INPUT_TOKENS`      | Input token limit for the LLM                              | `4000`                           |
 
-> ⚠️ **Không bao giờ commit file `.env` thật lên git.** File này đã được thêm vào `.gitignore`. Nếu API key từng bị commit nhầm trong lịch sử git, cần **revoke/rotate key đó ngay** trên Anthropic Console, xoá key khỏi lịch sử commit (`git filter-repo` hoặc BFG Repo-Cleaner), rồi mới push.
+> ⚠️ **Never commit a real `.env` file to git.** It is already listed in `.gitignore`. If an API key was ever committed by mistake, **revoke/rotate that key immediately** in the Anthropic Console, purge it from git history (`git filter-repo` or BFG Repo-Cleaner), then push.
 
-### Lưu ý về `.env` khi setup lần đầu (dành cho người mới clone repo)
+### Notes on `.env` for first-time setup (for people cloning the repo)
 
-- Repo chỉ commit `.env.example` (file mẫu, không có secret thật). Bạn **phải tự tạo** `.env` ở máy mình bằng lệnh `copy .env.example .env` — nếu không có `.env`, app sẽ chạy với giá trị mặc định trong code và báo lỗi 401 khi gọi LLM vì thiếu `ANTHROPIC_API_KEY`.
-- Lấy API key tại [console.anthropic.com](https://console.anthropic.com) → mục **API Keys** → tạo key mới, dán vào dòng `ANTHROPIC_API_KEY=` trong `.env`.
-- `.env` đã nằm trong `.gitignore` nên `git status` sẽ **không** hiện file này — nếu bạn vẫn thấy `.env` xuất hiện khi `git status`, nghĩa là nó đã bị `git add`/commit từ trước lúc có `.gitignore`. Cách gỡ:
+- Only `.env.example` (a template with no real secrets) is committed. You **must create your own** `.env` locally via `copy .env.example .env` — without it, the app falls back to code defaults and will return a 401 error when calling the LLM due to a missing `ANTHROPIC_API_KEY`.
+- Get an API key at [console.anthropic.com](https://console.anthropic.com) → **API Keys** → create a new key, paste it into the `ANTHROPIC_API_KEY=` line in `.env`.
+- `.env` is already in `.gitignore`, so `git status` should **not** show it. If it still shows up, it was likely added/committed before `.gitignore` existed. Fix:
   ```bash
   git rm --cached .env
   git commit -m "Remove .env from tracking"
   ```
 
-  (`--cached` chỉ gỡ khỏi git, không xoá file thật trên máy, app vẫn chạy bình thường.)
-- Mỗi lần đổi giá trị trong `.env` (ví dụ đổi `LLM_MODEL_NAME`), cần **restart lại `uvicorn`** để nạp giá trị mới — server không tự đọc lại `.env` khi đang chạy.
-- Không chia sẻ `.env` qua chat/email dạng plaintext (kể cả nội bộ nhóm) — nếu cần chia sẻ key cho thành viên khác trong nhóm đồ án, ưu tiên gửi riêng qua kênh an toàn (không paste vào group chat, không đính kèm khi nộp báo cáo/source code cho giảng viên).
+  (`--cached` only untracks it from git — the local file is untouched and the app keeps working.)
+- Restart `uvicorn` after changing any value in `.env` — the server does not hot-reload environment variables.
+- Never share `.env` in plaintext over chat/email, even within the team. If a teammate needs a key, share it through a secure channel — not pasted into a group chat or bundled with source code submitted to instructors.
 
-## Chạy ứng dụng
+## Running the App
 
 ```bash
 uvicorn app.main:app --reload
@@ -137,22 +138,22 @@ uvicorn app.main:app --reload
 - API: `http://localhost:8000/api/v1`
 - Frontend demo: `http://localhost:8000/`
 - Health check: `http://localhost:8000/health`
-- API docs (Swagger UI tự sinh bởi FastAPI): `http://localhost:8000/docs`
+- API docs (Swagger UI, auto-generated by FastAPI): `http://localhost:8000/docs`
 
 ## API Endpoints
 
 ### `POST /api/v1/evaluate`
 
-Đánh giá 1 CV với 1 JD.
+Evaluate one CV against one JD.
 
 **Form-data:**
 
-| Field       | Kiểu           | Bắt buộc                         |
-| ----------- | --------------- | ---------------------------------- |
-| `cv_file` | file (PDF/DOCX) | ✔                                 |
-| `jd_text` | text            | ✔ (nếu không có`jd_file`)    |
-| `jd_file` | file            | ✔ (nếu không có`jd_text`)    |
-| `jd_id`   | text            | tuỳ chọn, mặc định`"JD-01"` |
+| Field       | Type            | Required                         |
+| ----------- | --------------- | -------------------------------- |
+| `cv_file` | file (PDF/DOCX) | ✔                               |
+| `jd_text` | text            | ✔ (if`jd_file` not provided)  |
+| `jd_file` | file            | ✔ (if`jd_text` not provided)  |
+| `jd_id`   | text            | optional, defaults to`"JD-01"` |
 
 **Response:**
 
@@ -172,242 +173,9 @@ uvicorn app.main:app --reload
 
 ### `POST /api/v1/rank`
 
-Đánh giá nhiều CV cùng lúc với 1 JD, trả về danh sách đã xếp hạng theo `final_score` giảm dần.
+Evaluate multiple CVs against one JD at once, returning a ranked list.
 
-**Form-data:** tương tự `/evaluate` nhưng `cv_files` là danh sách nhiều file.
-
-**Response:**
-
-```json
-{
-  "jd_id": "JD-01",
-  "total_candidates": 12,
-  "results": [
-    { "rank": 1, "evaluation": { ... }, "rule_based_score": 85.0 },
-    { "rank": 2, "evaluation": { ... }, "rule_based_score": 79.0 }
-  ]
-}
-```
-
-## Cấu trúc project
-
-```
-.
-├── app/
-│   ├── main.py                 # Entry point FastAPI
-│   ├── api/
-│   │   └── routers.py          # REST endpoints (/evaluate, /rank)
-│   ├── core/
-│   │   ├── settings.py         # Đọc cấu hình từ biến môi trường
-│   │   ├── model_config.py     # Khởi tạo LLM client theo provider
-│   │   └── embedding_config.py # Khởi tạo embedding client theo provider
-│   ├── services/
-│   │   ├── parsing_service.py  # Parse CV/JD → structured data (LLM)
-│   │   ├── matching_service.py # Rule-based matching (embedding similarity)
-│   │   ├── scoring_service.py  # LLM tinh chỉnh điểm + giải thích
-│   │   └── pipeline.py         # Điều phối toàn bộ luồng
-│   ├── schemas/
-│   │   └── models.py           # Pydantic models (ParsedCV, ParsedJD, CandidateEvaluation...)
-│   └── utils/
-│       └── file_extraction.py  # Đọc text từ PDF/DOCX
-├── frontend/                   # Demo UI (HTML/CSS/JS thuần)
-├── tests/                      # Unit test (pytest)
-├── requirements.txt
-├── .env.example
-└── README.md
-```
-
-## Pipeline sinh dữ liệu & training model
-
-Để nâng cấp từ công thức chấm điểm cố định (rule-based cứng) sang model học được từ dữ liệu, project có thêm nhánh scripts hỗ trợ sinh dataset và training (nằm ngoài `app/`, không phải phần API chính):
-
-| Script                             | Vai trò                                                                                                                                                            |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `generate_synthetic_jd.py`       | Sinh JD tiếng Việt tổng hợp đa dạng (role/seniority/domain) bằng Claude, dùng khi không crawl được JD thật (robots.txt chặn ITviec/TopCV).            |
-| `generate_synthetic_cv.py`       | Sinh CV ghép với từng JD ở nhiều mức độ khớp (`good_fit`/`partial_fit`/`poor_fit`) để dataset có đủ tín hiệu phân biệt.                     |
-| `run_distillation.py`            | Chạy từng cặp CV-JD qua chính`RecruitmentPipeline` để lấy `final_score` (label) + điểm theo từng tiêu chí (feature) → xuất `training_data.csv`. |
-| `train_ranker.py` *(sắp có)* | Train model ranking nhẹ (XGBoost/LightGBM) trên`training_data.csv`, thay thế một phần việc gọi LLM khi cần lọc nhanh số lượng lớn CV.                |
-
-> Dữ liệu sinh ra (`*.jsonl`, `training_data.csv`) chứa thông tin **hư cấu** (tên/email/SĐT giả), an toàn để lưu trữ, nhưng khuyến nghị không commit trực tiếp file dataset lớn lên git (xem `.gitignore`) — nên lưu ở storage riêng (Google Drive, Drive nội bộ trường...) và ghi rõ cách tái tạo trong README.
-
-## Roadmap
-
-- [ ] Xử lý bất đồng bộ (background task/queue) cho `/rank` khi số lượng CV lớn.
-- [ ] Lưu kết quả đánh giá vào PostgreSQL + pgvector (cache embedding, lịch sử đánh giá).
-- [ ] Train model ranker nhẹ (XGBoost/LightGBM) làm bộ lọc nhanh trước khi gọi LLM chi tiết.
-- [ ] Bộ eval benchmark (CV-JD gán nhãn tay) để đo độ chính xác hệ thống.
-- [ ] Ẩn thông tin nhân khẩu học (tên, giới tính, tuổi) khỏi input LLM để giảm thiên vị.
-- [ ] Giải thích trực quan hơn (highlight câu/đoạn trong CV khớp với từng yêu cầu JD).
-
----
-
-## License
-
-Đồ án thực tập tốt nghiệp — mục đích học thuậ
-
-# Recruitment AI — Hệ thống đánh giá CV tự động
-
-Công cụ AI hỗ trợ tuyển dụng: tự động phân tích CV và JD (Job Description), đối chiếu mức độ phù hợp, và đưa ra điểm số + giải thích chi tiết giúp HR sàng lọc ứng viên nhanh hơn.
-
-Đồ án thực tập tốt nghiệp.
-
----
-
-## Mục lục
-
-- [Tính năng](#tính-năng)
-- [Kiến trúc hệ thống](#kiến-trúc-hệ-thống)
-- [Công nghệ sử dụng](#công-nghệ-sử-dụng)
-- [Cài đặt](#cài-đặt)
-- [Cấu hình biến môi trường](#cấu-hình-biến-môi-trường)
-- [Chạy ứng dụng](#chạy-ứng-dụng)
-- [API Endpoints](#api-endpoints)
-- [Cấu trúc project](#cấu-trúc-project)
-- [Pipeline sinh dữ liệu &amp; training model](#pipeline-sinh-dữ-liệu--training-model)
-- [Roadmap](#roadmap)
-
----
-
-## Tính năng
-
-- **Trích xuất thông tin CV/JD tự động** bằng LLM — parse CV (PDF/DOCX) và JD thành dữ liệu có cấu trúc (kỹ năng, kinh nghiệm, học vấn, dự án...).
-- **Chấm điểm 2 lớp**:
-  1. *Rule-based matching*: so khớp kỹ năng bằng embedding similarity, tính điểm kinh nghiệm/học vấn theo công thức trọng số.
-  2. *LLM scoring*: LLM xem xét lại kết quả rule-based, tinh chỉnh điểm số cuối và sinh giải thích (điểm mạnh, điểm thiếu sót) bằng ngôn ngữ tự nhiên.
-- **Đánh giá 1-CV-1-JD** (`/api/v1/evaluate`) và **xếp hạng nhiều CV cho 1 JD** (`/api/v1/rank`).
-- **Hỗ trợ nhiều nhà cung cấp LLM/embedding** (Anthropic, OpenAI, mô hình mã nguồn mở qua Ollama/sentence-transformers) — đổi qua biến môi trường, không cần sửa code.
-- **Frontend đơn giản** (HTML/CSS/JS thuần) để demo upload CV/JD và xem kết quả trực quan.
-
-## Kiến trúc hệ thống
-
-```
-                    ┌──────────────┐
-   CV (PDF/DOCX) ──▶│ File          │
-   JD (text/file) ─▶│ Extraction    │
-                    └──────┬───────┘
-                           ▼
-                 ┌───────────────────┐
-                 │ Parsing Service    │  (LLM structured output)
-                 │ CV → ParsedCV      │
-                 │ JD → ParsedJD      │
-                 └─────────┬─────────┘
-                           ▼
-                 ┌───────────────────┐
-                 │ Matching Service   │  (embedding similarity +
-                 │ → rule_based_score │   công thức trọng số)
-                 └─────────┬─────────┘
-                           ▼
-                 ┌───────────────────┐
-                 │ Scoring Service    │  (LLM tinh chỉnh điểm +
-                 │ → final_score      │   giải thích strengths/gaps)
-                 └─────────┬─────────┘
-                           ▼
-                   CandidateEvaluation
-                (trả về API / hiển thị FE)
-```
-
-Toàn bộ luồng trên được điều phối bởi `RecruitmentPipeline` (`app/services/pipeline.py`).
-
-## Công nghệ sử dụng
-
-| Thành phần         | Công nghệ                                                                           |
-| -------------------- | ------------------------------------------------------------------------------------- |
-| Backend              | FastAPI, Pydantic v2                                                                  |
-| LLM orchestration    | LangChain (langchain-core, langchain-anthropic, langchain-openai, langchain-ollama)   |
-| LLM provider         | Anthropic Claude (mặc định), OpenAI, hoặc mô hình mở qua Ollama                |
-| Embedding            | intfloat/multilingual-e5-large (mặc định, mã nguồn mở) hoặc Voyage AI / OpenAI |
-| Đọc file CV        | pypdf, docx2txt                                                                       |
-| Database (dự kiến) | PostgreSQL + pgvector (qua SQLAlchemy)                                                |
-| Frontend             | HTML/CSS/JS thuần                                                                    |
-| Testing              | pytest                                                                                |
-
-## Cài đặt
-
-**Yêu cầu:** Python 3.11+
-
-```bash
-git clone <repo-url>
-cd thực_tập_tốt_nghiệp
-
-python -m venv venv
-venv\Scripts\activate          # Windows
-# source venv/bin/activate     # macOS/Linux
-
-pip install -r requirements.txt
-```
-
-> Nếu dùng `EMBEDDING_PROVIDER=open_source`, lần chạy đầu sẽ tự tải model `intfloat/multilingual-e5-large` (~1.1GB) — cần kết nối mạng ổn định.
-
-## Cấu hình biến môi trường
-
-Copy file mẫu rồi điền giá trị thật:
-
-```bash
-copy .env.example .env      # Windows
-# cp .env.example .env      # macOS/Linux
-```
-
-| Biến                     | Mô tả                                                       | Giá trị mặc định              |
-| ------------------------- | ------------------------------------------------------------- | ---------------------------------- |
-| `LLM_PROVIDER`          | `anthropic` / `openai` / `open_source`                  | `anthropic`                      |
-| `LLM_MODEL_NAME`        | Tên model LLM                                                | `claude-sonnet-5`                |
-| `LLM_TEMPERATURE`       | Độ ngẫu nhiên của LLM (0 = ổn định nhất)             | `0.0`                            |
-| `ANTHROPIC_API_KEY`     | API key Anthropic (bắt buộc nếu`LLM_PROVIDER=anthropic`) | —                                 |
-| `ANTHROPIC_BASE_URL`    | Endpoint tuỳ chỉnh (nếu dùng proxy)                       | `https://api.anthropic.com`      |
-| `EMBEDDING_PROVIDER`    | `voyage` / `openai` / `open_source`                     | `open_source`                    |
-| `EMBEDDING_MODEL_NAME`  | Tên model embedding                                          | `intfloat/multilingual-e5-large` |
-| `SKILL_MATCH_THRESHOLD` | Ngưỡng cosine similarity để coi 2 kỹ năng là khớp     | `0.85`                           |
-| `MAX_INPUT_TOKENS`      | Giới hạn token đầu vào cho LLM                           | `4000`                           |
-
-> ⚠️ **Không bao giờ commit file `.env` thật lên git.** File này đã được thêm vào `.gitignore`. Nếu API key từng bị commit nhầm trong lịch sử git, cần **revoke/rotate key đó ngay** trên Anthropic Console, xoá key khỏi lịch sử commit (`git filter-repo` hoặc BFG Repo-Cleaner), rồi mới push.
-
-## Chạy ứng dụng
-
-```bash
-uvicorn app.main:app --reload
-```
-
-- API: `http://localhost:8000/api/v1`
-- Frontend demo: `http://localhost:8000/`
-- Health check: `http://localhost:8000/health`
-- API docs (Swagger UI tự sinh bởi FastAPI): `http://localhost:8000/docs`
-
-## API Endpoints
-
-### `POST /api/v1/evaluate`
-
-Đánh giá 1 CV với 1 JD.
-
-**Form-data:**
-
-| Field       | Kiểu           | Bắt buộc                         |
-| ----------- | --------------- | ---------------------------------- |
-| `cv_file` | file (PDF/DOCX) | ✔                                 |
-| `jd_text` | text            | ✔ (nếu không có`jd_file`)    |
-| `jd_file` | file            | ✔ (nếu không có`jd_text`)    |
-| `jd_id`   | text            | tuỳ chọn, mặc định`"JD-01"` |
-
-**Response:**
-
-```json
-{
-  "evaluation": {
-    "cv_id": "candidate.pdf",
-    "jd_id": "JD-01",
-    "final_score": 82.5,
-    "strengths": ["..."],
-    "gaps": ["..."],
-    "explanation": "..."
-  },
-  "rule_based_score": 78.0
-}
-```
-
-### `POST /api/v1/rank`
-
-Đánh giá nhiều CV cùng lúc với 1 JD, trả về danh sách đã xếp hạng theo `final_score` giảm dần.
-
-**Form-data:** tương tự `/evaluate` nhưng `cv_files` là danh sách nhiều file.
+**Form-data:** same as `/evaluate` but `cv_files` accepts multiple files.
 
 **Response:**
 
@@ -422,58 +190,67 @@ uvicorn app.main:app --reload
 }
 ```
 
-## Cấu trúc project
+## Project Structure
 
 ```
 .
 ├── app/
-│   ├── main.py                 # Entry point FastAPI
+│   ├── main.py                 # FastAPI entry point
 │   ├── api/
 │   │   └── routers.py          # REST endpoints (/evaluate, /rank)
 │   ├── core/
-│   │   ├── settings.py         # Đọc cấu hình từ biến môi trường
-│   │   ├── model_config.py     # Khởi tạo LLM client theo provider
-│   │   └── embedding_config.py # Khởi tạo embedding client theo provider
+│   │   ├── settings.py         # Reads configuration from environment variables
+│   │   ├── model_config.py     # Builds the LLM client based on provider
+│   │   └── embedding_config.py # Builds the embedding client based on provider
 │   ├── services/
-│   │   ├── parsing_service.py  # Parse CV/JD → structured data (LLM)
+│   │   ├── parsing_service.py  # Parses CV/JD → structured data (LLM)
 │   │   ├── matching_service.py # Rule-based matching (embedding similarity)
-│   │   ├── scoring_service.py  # LLM tinh chỉnh điểm + giải thích
-│   │   └── pipeline.py         # Điều phối toàn bộ luồng
+│   │   ├── scoring_service.py  # LLM refines score + explanation
+│   │   └── pipeline.py         # Orchestrates the whole flow
 │   ├── schemas/
 │   │   └── models.py           # Pydantic models (ParsedCV, ParsedJD, CandidateEvaluation...)
 │   └── utils/
-│       └── file_extraction.py  # Đọc text từ PDF/DOCX
-├── frontend/                   # Demo UI (HTML/CSS/JS thuần)
-├── tests/                      # Unit test (pytest)
+│       └── file_extraction.py  # Extracts text from PDF/DOCX
+├── frontend/                   # Demo UI (plain HTML/CSS/JS)
+├── tests/                      # Unit tests (pytest)
 ├── requirements.txt
 ├── .env.example
 └── README.md
 ```
 
-## Pipeline sinh dữ liệu & training model
+## Data Generation & Model Training Pipeline
 
-Để nâng cấp từ công thức chấm điểm cố định (rule-based cứng) sang model học được từ dữ liệu, project có thêm nhánh scripts hỗ trợ sinh dataset và training (nằm ngoài `app/`, không phải phần API chính):
+To move from a hardcoded scoring formula to a model that learns from data, the project includes an additional set of scripts for dataset generation and training (outside `app/`, not part of the main API):
 
-| Script                             | Vai trò                                                                                                                                                            |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `generate_synthetic_jd.py`       | Sinh JD tiếng Việt tổng hợp đa dạng (role/seniority/domain) bằng Claude, dùng khi không crawl được JD thật (robots.txt chặn ITviec/TopCV).            |
-| `generate_synthetic_cv.py`       | Sinh CV ghép với từng JD ở nhiều mức độ khớp (`good_fit`/`partial_fit`/`poor_fit`) để dataset có đủ tín hiệu phân biệt.                     |
-| `run_distillation.py`            | Chạy từng cặp CV-JD qua chính`RecruitmentPipeline` để lấy `final_score` (label) + điểm theo từng tiêu chí (feature) → xuất `training_data.csv`. |
-| `train_ranker.py` *(sắp có)* | Train model ranking nhẹ (XGBoost/LightGBM) trên`training_data.csv`, thay thế một phần việc gọi LLM khi cần lọc nhanh số lượng lớn CV.                |
+| Script                       | Purpose                                                                                                                                                                |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `generate_synthetic_jd.py` | Generates diverse synthetic Vietnamese JDs (role/seniority/domain) with Claude, used when real JDs can't be crawled (ITviec/TopCV block crawling via robots.txt).      |
+| `generate_synthetic_cv.py` | Generates CVs paired with each JD at varying fit levels (`good_fit`/`partial_fit`/`poor_fit`) so the dataset carries a distinguishable signal.                   |
+| `run_distillation.py`      | Runs each CV-JD pair through the actual`RecruitmentPipeline` to obtain `final_score` (label) and per-criterion scores (features) → exports `training_data.csv`. |
+| `train_ranker.py`          | Trains a lightweight ranking model (XGBoost) on`training_data.csv`, replacing part of the LLM calls when a fast bulk-screening step is needed.                       |
 
-> Dữ liệu sinh ra (`*.jsonl`, `training_data.csv`) chứa thông tin **hư cấu** (tên/email/SĐT giả), an toàn để lưu trữ, nhưng khuyến nghị không commit trực tiếp file dataset lớn lên git (xem `.gitignore`) — nên lưu ở storage riêng (Google Drive, Drive nội bộ trường...) và ghi rõ cách tái tạo trong README.
+> Generated data (`*.jsonl`, `training_data.csv`) contains **fictional** information (fake names/emails/phone numbers), so it's safe to store, but it's still recommended not to commit large dataset files directly to git (see `.gitignore`) — store them elsewhere (Google Drive, internal school storage...) and document how to regenerate them here instead.
+
+## Why a Trained Model Can Outperform the Hardcoded Formula
+
+The current rule-based formula (`0.5 × skills + 0.3 × experience + 0.2 × education`) has real limits that a learned model (XGBoost) can overcome:
+
+- **No interaction between factors** — the formula treats skills/experience/education as fully independent and just adds them up, while in reality low experience should heavily drag down the overall score regardless of how high skills are (a conditional/non-linear rule, which decision trees capture naturally).
+- **Fixed weights, not learned from data** — `0.5/0.3/0.2` is a guess applied identically to every role and seniority level, even though skills vs. experience should plausibly matter differently for a Fresher vs. a Senior position.
+- **Distilled from LLM judgment, which is more nuanced** — the training label (`final_score`) comes from the LLM's own refined evaluation, not a simple sum, so the model learns to approximate that more sophisticated judgment instead of a flat linear formula.
+- **Honest caveat** — this advantage only shows up with enough diverse training data; with a small dataset (~200 rows), the model may only match or slightly beat the baseline, which is itself a valid, reportable finding ("more data is needed to fully exploit the model's potential").
 
 ## Roadmap
 
-- [ ] Xử lý bất đồng bộ (background task/queue) cho `/rank` khi số lượng CV lớn.
-- [ ] Lưu kết quả đánh giá vào PostgreSQL + pgvector (cache embedding, lịch sử đánh giá).
-- [ ] Train model ranker nhẹ (XGBoost/LightGBM) làm bộ lọc nhanh trước khi gọi LLM chi tiết.
-- [ ] Bộ eval benchmark (CV-JD gán nhãn tay) để đo độ chính xác hệ thống.
-- [ ] Ẩn thông tin nhân khẩu học (tên, giới tính, tuổi) khỏi input LLM để giảm thiên vị.
-- [ ] Giải thích trực quan hơn (highlight câu/đoạn trong CV khớp với từng yêu cầu JD).
+- [ ] Asynchronous processing (background task/queue) for `/rank` when handling large numbers of CVs.
+- [ ] Persist evaluation results to PostgreSQL + pgvector (embedding cache, evaluation history).
+- [ ] Train a lightweight ranker (XGBoost/LightGBM) as a fast pre-filter before detailed LLM scoring.
+- [ ] Build an evaluation benchmark (manually labeled CV-JD pairs) to measure system accuracy.
+- [ ] Redact demographic information (name, gender, age) from LLM input to reduce bias.
+- [ ] More visual explanations (highlighting the exact CV sentence/section matching each JD requirement).
 
 ---
 
 ## License
 
-Đồ án thực tập tốt nghiệp — mục đích học thuật.
+Graduation internship project — for academic purposes.
