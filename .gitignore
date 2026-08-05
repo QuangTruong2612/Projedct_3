@@ -1,0 +1,37 @@
+# Môi trường / secrets
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Dataset sinh ra (khá lớn, không nên commit) — bỏ comment nếu muốn track
+# jd_synthetic.jsonl
+# cv_synthetic.jsonl
+# training_data.csv
+*.jsonl
+!sample_*.jsonl
+
+# File CV/JD upload thật (chứa PII, không nên commit)
+*.pdf
+!docs/**/*.pdf
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Test / cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Model files (nếu train ranker, không commit file model lớn)
+*.pkl
+*.joblib

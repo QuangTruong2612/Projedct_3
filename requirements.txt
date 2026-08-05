@@ -1,0 +1,36 @@
+# ==== Web framework ====
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+python-multipart==0.0.9
+python-dotenv==1.0.1
+
+# ==== LLM providers (chỉ cần cài provider đang dùng trong .env) ====
+anthropic==0.34.2
+openai==1.51.0
+
+# ==== LangChain (dùng để chuẩn hoá gọi LLM + structured output + document loaders) ====
+langchain-core==0.3.10
+langchain-community==0.3.2
+langchain-anthropic==0.2.3
+langchain-openai==0.2.2
+langchain-ollama==0.2.0
+
+# ==== Đọc file CV (PDF/DOCX) — dependency cho LangChain Document Loaders ====
+pypdf==5.0.1
+docx2txt==0.8
+
+# ==== Embedding providers ====
+voyageai==0.2.3
+
+# ==== Embedding mã nguồn mở (chỉ cần nếu dùng EMBEDDING_PROVIDER=open_source) ====
+sentence-transformers==3.1.1
+numpy==1.26.4
+
+# ==== Database (cho bước lưu trữ kết quả) ====
+sqlalchemy==2.0.35
+psycopg2-binary==2.9.9
+pgvector==0.3.4
+
+# ==== Testing (khuyến nghị cho phần đánh giá độ chính xác) ====
+pytest==8.3.3

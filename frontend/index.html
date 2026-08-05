@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recruitment AI Dashboard - Phân Tích & Xếp Hạng Hồ Sơ Ứng Viên</title>
+  <meta name="description" content="Công cụ AI hỗ trợ tuyển dụng thông minh: phân tích, chấm điểm và xếp hạng CV ứng viên tự động." >
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" >
+
+  <link rel="stylesheet" href="./styles.css" >
+</head>
+<body>
+  <!-- Header -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand">
+        <div class="logo-icon">
+          <i class="fa-solid fa-brain"></i>
+        </div>
+        <div class="brand-text">
+          <h1>Recruitment <span class="gradient-text">AI</span></h1>
+          <span class="version-tag">v1.0 Pro</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <div class="api-status-badge" id="apiStatusBadge">
+          <span class="status-dot pulsing red"></span>
+          <span class="status-text">Đang kiểm tra kết nối...</span>
+        </div>
+
+        <button class="btn btn-secondary btn-sm" id="btnDemoData" title="Tải nhanh dữ liệu mẫu để trải nghiệm giao diện">
+          <i class="fa-solid fa-wand-magic-sparkles"></i> Dữ liệu mẫu
+        </button>
+
+        <button class="theme-toggle-btn" id="themeToggle" title="Chuyển chế độ Sáng/Tối">
+          <i class="fa-solid fa-moon"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="dashboard-container">
+    <!-- Grid Layout: Sidebar Form & Main Display Area -->
+    <div class="dashboard-grid">
+
+      <!-- LEFT PANEL: Input Form -->
+      <aside class="panel input-panel">
+        <div class="panel-header">
+          <h2><i class="fa-solid fa-sliders text-primary"></i> Thông Tin Tuyển Dụng</h2>
+          <p class="panel-subtitle">Tải lên hồ sơ ứng viên và mô tả công việc (JD)</p>
+        </div>
+
+        <form id="recruitmentForm" onsubmit="return false;">
+          <!-- JD ID & Preset selection -->
+          <div class="form-group">
+            <div class="form-label-row">
+              <label for="jdId"><i class="fa-solid fa-hashtag"></i> Mã vị trí (JD ID)</label>
+              <span class="form-hint">Mã định danh</span>
+            </div>
+            <input type="text" id="jdId" class="form-control" value="JD-AI-ENG-01" placeholder="Ví dụ: JD-PYTHON-01" required />
+          </div>
+
+          <!-- SECTION 1: JD File Upload Dropzone -->
+          <div class="form-group">
+            <div class="form-label-row">
+              <label for="jdFileInput"><i class="fa-solid fa-file-contract"></i> File Mô tả công việc (JD)</label>
+              <span class="badge badge-info" id="jdStatusBadge">Chưa chọn file</span>
+            </div>
+
+            <div class="file-dropzone" id="jdDropzone">
+              <input type="file" id="jdFileInput" accept=".pdf,.docx,.doc,.txt" hidden />
+              <div class="dropzone-content">
+                <div class="dropzone-icon">
+                  <i class="fa-solid fa-file-contract"></i>
+                </div>
+                <p class="dropzone-title">Kéo & Thả file JD vào đây</p>
+                <p class="dropzone-sub">hoặc <span class="dropzone-browse">chọn file JD từ máy tính</span></p>
+                <span class="supported-formats">Hỗ trợ PDF, DOCX, TXT</span>
+              </div>
+            </div>
+
+            <!-- Uploaded JD File Status Card -->
+            <div id="jdFileContainer" class="uploaded-files-list"></div>
+
+            <!-- Optional Paste Text Accordion -->
+            <details class="jd-text-accordion">
+              <summary><i class="fa-solid fa-pen-to-square"></i> Hoặc dán nội dung JD bằng văn bản</summary>
+              <textarea id="jdText" class="form-control code-font" rows="5" placeholder="Dán nội dung Mô tả công việc (JD) vào đây..."></textarea>
+            </details>
+          </div>
+
+          <!-- CV Upload Zone -->
+          <div class="form-group">
+            <div class="form-label-row">
+              <label for="cvFilesInput"><i class="fa-solid fa-cloud-arrow-up"></i> Danh sách Hồ sơ CV (.pdf, .docx, .txt)</label>
+              <span class="badge badge-info" id="fileCountBadge">0 file</span>
+            </div>
+
+            <div class="file-dropzone" id="dropzone">
+              <input type="file" id="cvFilesInput" multiple accept=".pdf,.docx,.doc,.txt" hidden />
+              <div class="dropzone-content">
+                <div class="dropzone-icon">
+                  <i class="fa-solid fa-file-pdf"></i>
+                  <i class="fa-solid fa-file-word"></i>
+                </div>
+                <p class="dropzone-title">Kéo & Thả các file CV vào đây</p>
+                <p class="dropzone-sub">hoặc <span class="dropzone-browse">chọn file từ máy tính</span></p>
+                <span class="supported-formats">Hỗ trợ PDF, DOCX, TXT (Có thể chọn nhiều file)</span>
+              </div>
+            </div>
+
+            <!-- Uploaded Files List -->
+            <div class="uploaded-files-list" id="filesList"></div>
+          </div>
+
+          <!-- Submit Buttons -->
+          <div class="form-actions">
+            <button type="button" id="btnSubmitRank" class="btn btn-primary btn-block btn-lg">
+              <i class="fa-solid fa-bolt"></i> Phân Tích & Xếp Hạng CV
+            </button>
+          </div>
+        </form>
+      </aside>
+
+      <!-- RIGHT PANEL: Results & Candidate List -->
+      <section class="panel results-panel">
+        <!-- Welcome Initial State -->
+        <div class="empty-state" id="emptyState">
+          <div class="empty-illustration">
+            <div class="pulse-ring"></div>
+            <i class="fa-solid fa-wand-magic-sparkles"></i>
+          </div>
+          <h3>Sẵn sàng Đánh giá & Xếp hạng Hồ sơ</h3>
+          <p>Tải lên danh sách CV ứng viên và mô tả công việc (JD) ở góc bên trái, sau đó nhấn nút <strong>Phân Tích & Xếp Hạng</strong> để xem kết quả đánh giá bằng AI.</p>
+          <div class="feature-highlights">
+            <div class="feature-item">
+              <i class="fa-solid fa-chart-pie"></i>
+              <span>Chấm điểm đa tiêu chuẩn (Kỹ năng, Kinh nghiệm, Học vấn)</span>
+            </div>
+            <div class="feature-item">
+              <i class="fa-solid fa-robot"></i>
+              <span>AI LLM phân tích Điểm mạnh & Điểm thiếu hụt</span>
+            </div>
+            <div class="feature-item">
+              <i class="fa-solid fa-list-ol"></i>
+              <span>Tự động sắp xếp Top ứng viên tối ưu nhất</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI Processing Progress Bar -->
+        <div class="loading-state hidden" id="loadingState">
+          <div class="loading-card">
+            <div class="ai-loader">
+              <div class="spinner-ring"></div>
+              <i class="fa-solid fa-brain ai-icon"></i>
+            </div>
+            <h3 id="loadingStatusTitle">Hệ thống AI đang phân tích hồ sơ...</h3>
+            <p id="loadingStatusSub">Vui lòng chờ trong giây lát. Hệ thống đang đọc CV và đối soát với JD.</p>
+            
+            <div class="progress-steps">
+              <div class="step-item active" id="step1">
+                <div class="step-icon"><i class="fa-solid fa-file-export"></i></div>
+                <span>Đọc & Trích xuất CV</span>
+              </div>
+              <div class="step-line" id="line1"></div>
+              <div class="step-item" id="step2">
+                <div class="step-icon"><i class="fa-solid fa-calculator"></i></div>
+                <span>Tính điểm tiêu chuẩn</span>
+              </div>
+              <div class="step-line" id="line2"></div>
+              <div class="step-item" id="step3">
+                <div class="step-icon"><i class="fa-solid fa-robot"></i></div>
+                <span>Đánh giá sâu bằng LLM</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Results Display Container -->
+        <div class="results-content hidden" id="resultsContent">
+          
+          <!-- Summary Cards Bar -->
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <div class="metric-icon blue"><i class="fa-solid fa-users"></i></div>
+              <div class="metric-data">
+                <span class="metric-label">Tổng ứng viên</span>
+                <span class="metric-value" id="metricTotal">0</span>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-icon green"><i class="fa-solid fa-trophy"></i></div>
+              <div class="metric-data">
+                <span class="metric-label">Điểm cao nhất</span>
+                <span class="metric-value" id="metricHighest">0/100</span>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-icon purple"><i class="fa-solid fa-chart-line"></i></div>
+              <div class="metric-data">
+                <span class="metric-label">Điểm trung bình</span>
+                <span class="metric-value" id="metricAvg">0</span>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-icon orange"><i class="fa-solid fa-star"></i></div>
+              <div class="metric-data">
+                <span class="metric-label">Ứng viên sáng giá</span>
+                <span class="metric-value text-ellipsis" id="metricTopName">--</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Controls & Filters Bar -->
+          <div class="results-filter-bar">
+            <div class="search-box">
+              <i class="fa-solid fa-magnifying-glass"></i>
+              <input type="text" id="searchCandidate" placeholder="Tìm kiếm tên file CV..." oninput="filterCandidates()" />
+            </div>
+
+            <div class="filter-actions">
+              <select id="filterScore" onchange="filterCandidates()" class="select-control">
+                <option value="all">Tất cả điểm số</option>
+                <option value="high">Xuất sắc (>= 80đ)</option>
+                <option value="medium">Khá / Tiềm năng (50 - 79đ)</option>
+                <option value="low">Chưa đạt (&lt; 50đ)</option>
+              </select>
+
+              <button class="btn btn-secondary btn-sm" onclick="exportResultsCSV()">
+                <i class="fa-solid fa-file-excel"></i> Xuất CSV
+              </button>
+            </div>
+          </div>
+
+          <!-- Candidates List Header -->
+          <div class="results-header">
+            <h3><i class="fa-solid fa-award text-warning"></i> Bảng Xếp Hạng Ứng Viên</h3>
+            <span class="results-count" id="resultsCountText">Hiển thị 0 kết quả</span>
+          </div>
+
+          <!-- Candidates Cards Container -->
+          <div class="candidates-list" id="candidatesList"></div>
+        </div>
+
+      </section>
+
+    </div>
+  </main>
+
+  <!-- Candidate Details Modal -->
+  <div class="modal-backdrop hidden" id="detailModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <span class="rank-badge-large" id="modalRank">#1</span>
+          <div>
+            <h3 id="modalCvName">Nguyen_Van_A_CV.pdf</h3>
+            <span class="text-sub" id="modalJdId">Mã vị trí: JD-AI-01</span>
+          </div>
+        </div>
+        <button class="modal-close-btn" onclick="closeDetailModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Scores Summary Row -->
+        <div class="modal-score-banner">
+          <div class="score-box main">
+            <span class="score-title">Điểm Đánh Giá AI</span>
+            <div class="score-value-big" id="modalFinalScore">88<span>/100</span></div>
+          </div>
+          <div class="score-box sub">
+            <span class="score-title">Điểm Rule Match</span>
+            <div class="score-value-medium" id="modalRuleScore">82.5<span>/100</span></div>
+          </div>
+        </div>
+
+        <!-- Strengths Section -->
+        <div class="modal-section">
+          <h4><i class="fa-solid fa-circle-check text-success"></i> Điểm Mạnh Nổi Bật (Strengths)</h4>
+          <div class="tags-container green-tags" id="modalStrengths"></div>
+        </div>
+
+        <!-- Gaps Section -->
+        <div class="modal-section">
+          <h4><i class="fa-solid fa-triangle-exclamation text-warning"></i> Điểm Còn Thiếu / Hạn Chế (Gaps)</h4>
+          <div class="tags-container orange-tags" id="modalGaps"></div>
+        </div>
+
+        <!-- AI Explanation Section -->
+        <div class="modal-section">
+          <h4><i class="fa-solid fa-robot text-primary"></i> Nhận Xét & Phân Tích Chi Tiết từ AI</h4>
+          <div class="ai-explanation-box" id="modalExplanation"></div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeDetailModal()">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
