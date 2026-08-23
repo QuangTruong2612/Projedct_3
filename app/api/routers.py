@@ -7,6 +7,8 @@ nên bổ sung thêm: xác thực (auth), lưu kết quả vào DB, xử lý b�
 vài giây đến vài chục giây.
 """
 
+import threading
+
 from fastapi import APIRouter, Form, File, HTTPException, UploadFile
 
 from app.core.settings import ModelSettings
@@ -15,23 +17,55 @@ from app.utils.file_extraction import extract_text_from_file
 
 router = APIRouter(prefix="/api/v1", tags=["recruitment"])
 
-_pipeline = None
+_pipeline: RecruitmentPipeline | None = None
+_pipeline_lock = threading.Lock()
 
 
 def get_pipeline() -> RecruitmentPipeline:
-    from dotenv import load_dotenv
-    load_dotenv(override=True)
-    return RecruitmentPipeline(ModelSettings())
+    """Trả về pipeline dùng chung cho cả tiến trình, dựng đúng 1 lần.
+
+    Trước đây hàm này dựng RecruitmentPipeline MỚI cho mỗi request. Constructor
+    của pipeline gọi get_embedding_client() -> HuggingFaceEmbeddings -> nạp
+    model intfloat/multilingual-e5-large (~1.1GB) từ đĩa vào RAM. Nghĩa là mỗi
+    lần gọi API đều phải nạp lại toàn bộ model, và cache embedding cũng bị xoá
+    sạch theo. Giữ lại một instance duy nhất khắc phục cả hai vấn đề.
+
+    Lưu ý: vì chỉ đọc .env một lần, đổi giá trị trong .env phải khởi động lại
+    uvicorn mới có hiệu lực (README đã ghi rõ điều này).
+    """
+    global _pipeline
+    if _pipeline is None:
+        # Khoá + kiểm tra 2 lần: endpoint chạy trong threadpool nên nhiều
+        # request đầu tiên có thể vào đây cùng lúc và cùng nạp model.
+        with _pipeline_lock:
+            if _pipeline is None:
+                from dotenv import load_dotenv
+                load_dotenv(override=True)
+                _pipeline = RecruitmentPipeline(ModelSettings())
+    return _pipeline
+
+
+def reset_pipeline() -> None:
+    """Xoá instance đang cache -- dùng cho test hoặc khi cần nạp lại cấu hình."""
+    global _pipeline
+    with _pipeline_lock:
+        _pipeline = None
 
 
 @router.post("/evaluate")
-async def evaluate_candidate(
+def evaluate_candidate(
     cv_file: UploadFile = File(...),
     jd_text: str = Form(None),
     jd_id: str = Form("JD-01"),
     jd_file: UploadFile = File(None),
 ):
-    """Đánh giá 1 CV với 1 JD, trả về điểm số + giải thích."""
+    """Đánh giá 1 CV với 1 JD, trả về điểm số + giải thích.
+
+    Khai báo `def` (không phải `async def`): thân hàm gọi LLM và embedding đều
+    là code đồng bộ, chặn luồng. Với `async def`, FastAPI chạy thẳng trên event
+    loop -> cả server đứng im trong lúc chờ. Với `def`, FastAPI tự đẩy sang
+    threadpool nên các request khác vẫn được phục vụ.
+    """
     if jd_file and jd_file.filename:
         try:
             jd_text = extract_text_from_file(jd_file)
@@ -66,17 +100,23 @@ async def evaluate_candidate(
     return {
         "evaluation": result.evaluation.model_dump(),
         "rule_based_score": result.rule_based_score,
+        # Điểm từng tiêu chí kèm diễn giải -> HR thấy được điểm tổng đến từ đâu
+        "criterion_scores": [c.model_dump() for c in result.criterion_scores],
     }
 
 
 @router.post("/rank")
-async def rank_candidates(
+def rank_candidates(
     cv_files: list[UploadFile] = File(...),
     jd_text: str = Form(None),
     jd_id: str = Form("JD-01"),
     jd_file: UploadFile = File(None),
 ):
-    """Đánh giá nhiều CV cùng lúc với 1 JD, trả về danh sách đã xếp hạng."""
+    """Đánh giá nhiều CV cùng lúc với 1 JD, trả về danh sách đã xếp hạng.
+
+    Dùng `def` thay vì `async def` với cùng lý do ở /evaluate — endpoint này
+    nặng hơn nhiều nên việc chặn event loop càng nghiêm trọng.
+    """
     if jd_file and jd_file.filename:
         try:
             extracted_jd = extract_text_from_file(jd_file)
@@ -115,6 +155,7 @@ async def rank_candidates(
                 "rank": i + 1,
                 "evaluation": r.evaluation.model_dump(),
                 "rule_based_score": r.rule_based_score,
+                "criterion_scores": [c.model_dump() for c in r.criterion_scores],
             }
             for i, r in enumerate(ranked)
         ],
