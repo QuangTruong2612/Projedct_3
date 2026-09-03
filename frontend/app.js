@@ -47,6 +47,30 @@ function updateThemeIcon(theme) {
 }
 
 /* ==========================================================================
+   ĐÁNH DẤU DỮ LIỆU MÔ PHỎNG
+   ========================================================================== */
+/** Bật/tắt dải cảnh báo trên bảng kết quả. Truyền null để ẩn. */
+function setSimulatedBanner(reason) {
+  const banner = document.getElementById("simulatedBanner");
+  if (!banner) return;
+  banner.classList.toggle("hidden", !reason);
+  const detail = document.getElementById("simulatedReason");
+  if (detail) detail.textContent = reason || "";
+}
+
+/** Backend đã pass health check nhưng lượt gọi thật bị lỗi -> badge không
+    được phép tiếp tục hiển thị "Live". */
+function markApiDegraded() {
+  isApiOnline = false;
+  const badge = document.getElementById("apiStatusBadge");
+  if (!badge) return;
+  badge.innerHTML = `
+    <span class="status-dot amber"></span>
+    <span class="status-text">Backend lỗi — đang mô phỏng</span>
+  `;
+}
+
+/* ==========================================================================
    API HEALTH CHECK
    ========================================================================== */
 async function checkApiHealth() {
@@ -310,23 +334,31 @@ async function processRankForm() {
 
       const data = await response.json();
       rankedResults = data.results || [];
+      setSimulatedBanner(null);   // kết quả thật -> ẩn cảnh báo
       renderResults(rankedResults);
       showToast(`Đã phân tích xong ${rankedResults.length} hồ sơ!`, "success");
     } catch (err) {
-      console.warn("API Error, fallback to AI simulation:", err);
-      showToast(`Backend API: ${err.message}. Tự động mô phỏng đánh giá!`, "info");
-      await simulateAiEvaluation(selectedFiles, jdId);
+      // Backend đã trả lời health check nhưng lượt chấm thật lại hỏng
+      // (API key sai, 500, timeout...). Trước đây chỗ này lặng lẽ chuyển sang
+      // dữ liệu giả trong khi badge vẫn báo "Live" -> người xem hoàn toàn có
+      // thể tưởng số liệu bịa là kết quả thật.
+      console.error("Lỗi gọi API /rank:", err);
+      showToast(`Backend lỗi: ${err.message}`, "error");
+      markApiDegraded();
+      await simulateAiEvaluation(selectedFiles, jdId, `Backend lỗi: ${err.message}`);
     }
   } else {
-    // Offline simulation
-    await simulateAiEvaluation(selectedFiles, jdId);
+    await simulateAiEvaluation(selectedFiles, jdId, "Backend API không kết nối được.");
   }
 
   hideLoadingState();
 }
 
-/* Simulate AI Evaluation when offline or testing */
-async function simulateAiEvaluation(files, jdId) {
+/* Simulate AI Evaluation when offline or testing.
+   `reason` được hiển thị thường trực trên bảng kết quả để phân biệt rõ với
+   kết quả chấm thật. */
+async function simulateAiEvaluation(files, jdId, reason = "Đang chạy ở chế độ demo.") {
+  setSimulatedBanner(reason);
   await setStep(1);
   await delay(600);
   await setStep(2);
@@ -423,11 +455,185 @@ async function setStep(stepNum) {
 
 function delay(ms) { return new Promise(res => setTimeout(res, ms)); }
 
+
+/* ==========================================================================
+   BẢNG PHÂN LOẠI (BOARD) CHO HR
+   AI xếp sẵn ứng viên vào cột theo điểm; HR có quyền chuyển sang cột khác.
+   Quyết định của HR được lưu lại và LUÔN ưu tiên hơn gợi ý của AI --
+   máy đề xuất, người quyết định.
+   ========================================================================== */
+
+const BOARD_COLUMNS = [
+  { id: "shortlist", title: "Nên phỏng vấn", icon: "fa-star", tone: "green" },
+  { id: "consider",  title: "Cân nhắc thêm", icon: "fa-scale-balanced", tone: "amber" },
+  { id: "rejected",  title: "Chưa phù hợp",  icon: "fa-circle-minus", tone: "red" },
+];
+
+let viewMode = "list";
+/** cv_id -> id cột do HR tự chuyển. Chỉ chứa các ca HR ĐÃ can thiệp. */
+let hrDecisions = {};
+
+const DECISIONS_KEY = "recruitment_ai_hr_decisions";
+
+function loadDecisions() {
+  try {
+    hrDecisions = JSON.parse(localStorage.getItem(DECISIONS_KEY)) || {};
+  } catch (err) {
+    hrDecisions = {};   // localStorage hỏng/bị chặn -> coi như chưa có quyết định nào
+  }
+}
+
+function saveDecisions() {
+  try {
+    localStorage.setItem(DECISIONS_KEY, JSON.stringify(hrDecisions));
+  } catch (err) {
+    // Chế độ ẩn danh hoặc trình duyệt chặn -> vẫn chạy được, chỉ là không nhớ
+    console.warn("Không lưu được quyết định vào localStorage:", err);
+  }
+}
+
+/** Cột mà AI đề xuất, thuần theo điểm. */
+function suggestedColumn(score) {
+  if (score >= 80) return "shortlist";
+  if (score >= 50) return "consider";
+  return "rejected";
+}
+
+/** Cột thực tế đang hiển thị: ưu tiên quyết định của HR nếu có. */
+function columnOf(item) {
+  return hrDecisions[item.evaluation.cv_id] || suggestedColumn(item.evaluation.final_score);
+}
+
+function setViewMode(mode) {
+  viewMode = mode;
+  const isBoard = mode === "board";
+
+  document.getElementById("candidatesList").classList.toggle("hidden", isBoard);
+  document.getElementById("candidatesBoard").classList.toggle("hidden", !isBoard);
+
+  const listBtn = document.getElementById("viewBtnList");
+  const boardBtn = document.getElementById("viewBtnBoard");
+  listBtn.classList.toggle("active", !isBoard);
+  boardBtn.classList.toggle("active", isBoard);
+  listBtn.setAttribute("aria-selected", String(!isBoard));
+  boardBtn.setAttribute("aria-selected", String(isBoard));
+
+  filterCandidates();
+}
+
+/** HR chuyển ứng viên sang cột khác. */
+function moveCandidate(cvId, columnId) {
+  const item = rankedResults.find(r => r.evaluation.cv_id === cvId);
+  if (!item) return;
+
+  if (columnId === suggestedColumn(item.evaluation.final_score)) {
+    delete hrDecisions[cvId];   // trùng đề xuất AI -> không cần lưu đè
+  } else {
+    hrDecisions[cvId] = columnId;
+  }
+  saveDecisions();
+  filterCandidates();
+
+  const col = BOARD_COLUMNS.find(c => c.id === columnId);
+  showToast(`Đã chuyển "${cvId}" sang "${col.title}"`, "success");
+}
+
+/** Thanh điểm nhỏ cho từng tiêu chí, dùng chung cho card và modal. */
+function criterionBars(criterionScores) {
+  if (!criterionScores || criterionScores.length === 0) return "";
+  const label = { skills: "Kỹ năng", experience: "Kinh nghiệm", education: "Học vấn" };
+
+  return criterionScores.map(c => {
+    const pct = Math.round((c.score || 0) * 100);
+    const tone = pct >= 70 ? "green" : pct >= 40 ? "amber" : "red";
+    const warn = c.missing_data
+      ? ` <i class="fa-solid fa-triangle-exclamation" title="Thiếu dữ liệu trong CV — điểm này không đáng tin"></i>`
+      : "";
+    return `
+      <div class="criterion-bar" title="${escapeHtml(c.detail || "")}">
+        <span class="criterion-name">${label[c.criterion] || c.criterion}${warn}</span>
+        <div class="criterion-track"><div class="criterion-fill ${tone}" style="width:${pct}%"></div></div>
+        <span class="criterion-value">${pct}</span>
+      </div>`;
+  }).join("");
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, ch => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
+  ));
+}
+
+function renderBoard(items) {
+  const container = document.getElementById("candidatesBoard");
+
+  container.innerHTML = BOARD_COLUMNS.map(col => {
+    const inColumn = items.filter(r => columnOf(r) === col.id);
+
+    const cards = inColumn.map(r => {
+      const ev = r.evaluation;
+      const scoreClass = ev.final_score >= 80 ? "high" : ev.final_score >= 50 ? "medium" : "low";
+      const moved = Boolean(hrDecisions[ev.cv_id]);
+      const unreliable = r.completeness && r.completeness.warnings && r.completeness.warnings.length > 0;
+
+      const moveButtons = BOARD_COLUMNS
+        .filter(c => c.id !== col.id)
+        .map(c => `
+          <button class="board-move-btn ${c.tone}" title="Chuyển sang ${c.title}"
+                  onclick="moveCandidate('${escapeHtml(ev.cv_id)}', '${c.id}')">
+            <i class="fa-solid ${c.icon}"></i>
+          </button>`).join("");
+
+      return `
+        <article class="board-card">
+          <header class="board-card-head">
+            <span class="board-rank">#${r.rank}</span>
+            <h5 class="text-ellipsis" title="${escapeHtml(ev.cv_id)}">${escapeHtml(ev.cv_id)}</h5>
+            <span class="score-number ${scoreClass}">${ev.final_score}</span>
+          </header>
+
+          ${unreliable ? `
+            <div class="board-card-warning" title="${escapeHtml(r.completeness.warnings.join("; "))}">
+              <i class="fa-solid fa-triangle-exclamation"></i> CV thiếu dữ liệu — điểm chưa đáng tin
+            </div>` : ""}
+
+          <div class="board-card-criteria">${criterionBars(r.criterion_scores)}</div>
+
+          <div class="board-card-tags">
+            <span class="pill-tag green">${ev.strengths.length} mạnh</span>
+            <span class="pill-tag orange">${ev.gaps.length} thiếu</span>
+            ${moved ? `<span class="pill-tag blue" title="Bạn đã tự chuyển ứng viên này, khác với đề xuất của AI">HR đã đổi</span>` : ""}
+          </div>
+
+          <footer class="board-card-foot">
+            <button class="btn btn-secondary btn-sm" onclick="openDetailModal(${r.rank - 1})">
+              <i class="fa-solid fa-eye"></i> Chi tiết
+            </button>
+            <div class="board-move-group">${moveButtons}</div>
+          </footer>
+        </article>`;
+    }).join("");
+
+    return `
+      <section class="board-column">
+        <header class="board-column-head ${col.tone}">
+          <h4><i class="fa-solid ${col.icon}"></i> ${col.title}</h4>
+          <span class="board-count">${inColumn.length}</span>
+        </header>
+        <div class="board-column-body">
+          ${cards || '<p class="board-empty">Chưa có ứng viên nào</p>'}
+        </div>
+      </section>`;
+  }).join("");
+}
+
 /* ==========================================================================
    RENDER RESULTS & METRICS
    ========================================================================== */
 function renderResults(results) {
   if (!results || results.length === 0) return;
+
+  loadDecisions();
 
   // 1. Calculate Metrics
   const total = results.length;
@@ -444,8 +650,20 @@ function renderResults(results) {
   filterCandidates();
 }
 
+/** Xoá từ khoá tìm kiếm và render lại. */
+function clearSearch() {
+  const input = document.getElementById("searchCandidate");
+  input.value = "";
+  input.focus();
+  filterCandidates();
+}
+
 function filterCandidates() {
-  const searchTerm = document.getElementById("searchCandidate").value.toLowerCase();
+  const searchInput = document.getElementById("searchCandidate");
+  const searchTerm = searchInput.value.toLowerCase();
+
+  // Nút xoá chỉ hiện khi thực sự có từ khoá
+  document.getElementById("searchClear").classList.toggle("hidden", searchTerm === "");
   const filterTier = document.getElementById("filterScore").value;
 
   const filtered = rankedResults.filter(r => {
@@ -462,13 +680,22 @@ function filterCandidates() {
 
   document.getElementById("resultsCountText").textContent = `Hiển thị ${filtered.length} / ${rankedResults.length} kết quả`;
 
+  // Kiểu board có bố cục riêng -> tách hẳn nhánh render
+  if (viewMode === "board") {
+    renderBoard(filtered);
+    return;
+  }
+
   const container = document.getElementById("candidatesList");
 
   if (filtered.length === 0) {
+    const msg = searchTerm
+      ? `Không có ứng viên nào khớp với "${escapeHtml(searchInput.value)}"`
+      : "Không tìm thấy ứng viên phù hợp với bộ lọc";
     container.innerHTML = `
-      <div style="text-align: center; padding: 2rem; color: var(--text-muted);">
-        <i class="fa-solid fa-filter-circle-xmark" style="font-size: 2rem; margin-bottom: 0.5rem;"></i>
-        <p>Không tìm thấy ứng viên phù hợp với bộ lọc</p>
+      <div class="empty-filter-state">
+        <i class="fa-solid fa-filter-circle-xmark"></i>
+        <p>${msg}</p>
       </div>
     `;
     return;
@@ -524,6 +751,44 @@ function openDetailModal(index) {
 
   document.getElementById("modalFinalScore").innerHTML = `${ev.final_score}<span>/100</span>`;
   document.getElementById("modalRuleScore").innerHTML = `${item.rule_based_score}<span>/100</span>`;
+
+  // Cảnh báo CV parse thiếu
+  const compSection = document.getElementById("modalCompletenessSection");
+  const comp = item.completeness;
+  if (comp && comp.warnings && comp.warnings.length > 0) {
+    compSection.classList.remove("hidden");
+    document.getElementById("modalCompleteness").innerHTML = `
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <div>
+        <strong>Điểm số của hồ sơ này có thể không đáng tin.</strong>
+        <span>${comp.warnings.map(escapeHtml).join(". ")}. Nên mở CV gốc kiểm tra lại.</span>
+      </div>`;
+  } else {
+    compSection.classList.add("hidden");
+  }
+
+  // Điểm từng tiêu chí
+  document.getElementById("modalCriteria").innerHTML =
+    criterionBars(item.criterion_scores) ||
+    '<p class="text-sub">Không có dữ liệu chi tiết theo tiêu chí</p>';
+
+  // Bổ sung kỹ năng nào thì điểm tăng nhiều nhất
+  const gapSection = document.getElementById("modalGapImpactSection");
+  const gaps = item.skill_gaps || [];
+  if (gaps.length > 0) {
+    gapSection.classList.remove("hidden");
+    document.getElementById("modalGapImpact").innerHTML = gaps.map(g => `
+      <div class="gap-impact-row">
+        <span class="gap-skill">${escapeHtml(g.skill)}</span>
+        <span class="pill-tag ${g.is_required ? "orange" : "blue"}">
+          ${g.is_required ? "bắt buộc" : "ưu tiên"}
+        </span>
+        <span class="gap-current">đang đáp ứng ${Math.round((g.current_coverage || 0) * 100)}%</span>
+        <span class="gap-gain">+${g.score_gain} điểm</span>
+      </div>`).join("");
+  } else {
+    gapSection.classList.add("hidden");
+  }
 
   // Strengths
   const strengthsEl = document.getElementById("modalStrengths");

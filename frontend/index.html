@@ -187,7 +187,18 @@
 
         <!-- Results Display Container -->
         <div class="results-content hidden" id="resultsContent">
-          
+
+          <!-- Cảnh báo dữ liệu mô phỏng: hiện thường trực (không phải toast tự
+               tắt) mỗi khi kết quả KHÔNG đến từ backend thật, để không ai nhầm
+               số liệu demo với số liệu do hệ thống chấm. -->
+          <div class="simulated-banner hidden" id="simulatedBanner" role="alert">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <div>
+              <strong>Đây là dữ liệu mô phỏng, không phải kết quả chấm thật.</strong>
+              <span id="simulatedReason"></span>
+            </div>
+          </div>
+
           <!-- Summary Cards Bar -->
           <div class="metrics-grid">
             <div class="metric-card">
@@ -227,10 +238,29 @@
           <div class="results-filter-bar">
             <div class="search-box">
               <i class="fa-solid fa-magnifying-glass"></i>
-              <input type="text" id="searchCandidate" placeholder="Tìm kiếm tên file CV..." oninput="filterCandidates()" />
+              <input type="search" id="searchCandidate" class="form-control"
+                     placeholder="Tìm theo tên file CV..." autocomplete="off"
+                     aria-label="Tìm kiếm ứng viên theo tên file CV"
+                     oninput="filterCandidates()" />
+              <button type="button" class="search-clear hidden" id="searchClear"
+                      aria-label="Xoá từ khoá tìm kiếm" onclick="clearSearch()">
+                <i class="fa-solid fa-xmark"></i>
+              </button>
             </div>
 
             <div class="filter-actions">
+              <!-- Chuyển giữa danh sách xếp hạng và bảng phân loại (board) -->
+              <div class="view-switch" role="tablist" aria-label="Kiểu hiển thị">
+                <button class="view-switch-btn active" id="viewBtnList" role="tab"
+                        aria-selected="true" onclick="setViewMode('list')">
+                  <i class="fa-solid fa-list-ol"></i> Xếp hạng
+                </button>
+                <button class="view-switch-btn" id="viewBtnBoard" role="tab"
+                        aria-selected="false" onclick="setViewMode('board')">
+                  <i class="fa-solid fa-table-columns"></i> Bảng phân loại
+                </button>
+              </div>
+
               <select id="filterScore" onchange="filterCandidates()" class="select-control">
                 <option value="all">Tất cả điểm số</option>
                 <option value="high">Xuất sắc (>= 80đ)</option>
@@ -250,8 +280,14 @@
             <span class="results-count" id="resultsCountText">Hiển thị 0 kết quả</span>
           </div>
 
-          <!-- Candidates Cards Container -->
+          <!-- Candidates Cards Container (kiểu danh sách) -->
           <div class="candidates-list" id="candidatesList"></div>
+
+          <!-- Bảng phân loại (kiểu board) -->
+          <!-- AI xếp sẵn ứng viên vào cột theo điểm, HR có quyền chuyển sang cột
+               khác. Quyết định của HR được lưu lại và luôn ưu tiên hơn gợi ý
+               của AI -- máy đề xuất, người quyết định. -->
+          <div class="board hidden" id="candidatesBoard"></div>
         </div>
 
       </section>
@@ -286,6 +322,17 @@
           </div>
         </div>
 
+        <!-- Cảnh báo CV parse thiếu -->
+        <div class="modal-section hidden" id="modalCompletenessSection">
+          <div class="data-warning" id="modalCompleteness"></div>
+        </div>
+
+        <!-- Điểm từng tiêu chí -->
+        <div class="modal-section">
+          <h4><i class="fa-solid fa-chart-simple text-primary"></i> Điểm Theo Từng Tiêu Chí</h4>
+          <div class="criteria-list" id="modalCriteria"></div>
+        </div>
+
         <!-- Strengths Section -->
         <div class="modal-section">
           <h4><i class="fa-solid fa-circle-check text-success"></i> Điểm Mạnh Nổi Bật (Strengths)</h4>
@@ -296,6 +343,12 @@
         <div class="modal-section">
           <h4><i class="fa-solid fa-triangle-exclamation text-warning"></i> Điểm Còn Thiếu / Hạn Chế (Gaps)</h4>
           <div class="tags-container orange-tags" id="modalGaps"></div>
+        </div>
+
+        <!-- Bù kỹ năng nào thì điểm tăng nhiều nhất -->
+        <div class="modal-section hidden" id="modalGapImpactSection">
+          <h4><i class="fa-solid fa-arrow-trend-up text-success"></i> Bổ Sung Kỹ Năng Nào Thì Điểm Tăng Nhiều Nhất</h4>
+          <div class="gap-impact-list" id="modalGapImpact"></div>
         </div>
 
         <!-- AI Explanation Section -->
