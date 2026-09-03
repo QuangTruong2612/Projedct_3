@@ -104,6 +104,9 @@ class FakeMatcher:
             rule_based_score=80.0,
         )
 
+    def skill_gap_impact(self, cv, jd, top_n=5):
+        return []
+
 
 class FakeScorer:
     def evaluate(self, cv, jd, match_result) -> CandidateEvaluation:

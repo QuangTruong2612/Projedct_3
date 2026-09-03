@@ -1,7 +1,5 @@
 from abc import ABC, abstractmethod
 
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.output_parsers import JsonOutputParser
 from pydantic import BaseModel
 
 from app.core.settings import LLMProvider, ModelSettings
@@ -73,14 +71,6 @@ def _build_chat_model(settings: ModelSettings) -> BaseModel:
 
 class BaseLLMClient(ABC):
     @abstractmethod
-    def extract_json(self, prompt: str, schema_hint: str) -> dict:
-        raise NotImplementedError
- 
-    @abstractmethod
-    def score_candidate(self, prompt: str) -> dict:
-        raise NotImplementedError
- 
-    @abstractmethod
     def extract_structured(self, prompt: str, schema: type[BaseModel]) -> BaseModel:
         """Truyền thẳng Pydantic schema (ví dụ ParsedCV) thay vì mô tả
         schema bằng chuỗi. LangChain tự sinh JSON Schema, ép model tuân
@@ -94,23 +84,6 @@ class LangChainLLMClient(BaseLLMClient):
  
     def __init__(self, settings: ModelSettings):
         self.chat_model = _build_chat_model(settings)
-        self._json_parser = JsonOutputParser()
- 
-    def _call_text(self, prompt: str) -> str:
-        response = self.chat_model.invoke(prompt)
-        return response.content
- 
-    def extract_json(self, prompt: str, schema_hint: str) -> dict:
-        full_prompt = (
-            f"{prompt}\n\nChỉ trả về JSON hợp lệ theo cấu trúc sau, "
-            f"không thêm giải thích hay markdown:\n{schema_hint}"
-        )
-        raw = self._call_text(full_prompt)
-        return self._json_parser.parse(raw)
- 
-    def score_candidate(self, prompt: str) -> dict:
-        raw = self._call_text(prompt)
-        return self._json_parser.parse(raw)
  
     def extract_structured(self, prompt: str, schema: type[BaseModel]) -> BaseModel:
         structured_llm = self.chat_model.with_structured_output(schema)

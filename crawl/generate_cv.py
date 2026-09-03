@@ -120,26 +120,32 @@ def already_done_pairs(out_path: Path) -> set[tuple[str, str]]:
     return done
 
 
+JD_FILE = Path("jd_synthetic.jsonl")
+OUT_FILE = Path("cv_synthetic.jsonl")
+# Nghỉ giữa 2 lượt gọi API để không chạm rate limit
+DELAY_SECONDS = 0.5
+# Cố định seed để việc chọn fit_level lặp lại được khi chạy tiếp
+RANDOM_SEED = 42
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--jd_file", default="jd_synthetic.jsonl")
-    parser.add_argument("--per_jd", type=int, default=2)
-    parser.add_argument("--out", default="cv_synthetic.jsonl")
-    parser.add_argument("--delay", type=float, default=0.5)
-    parser.add_argument("--seed", type=int, default=42, help="cố định seed để việc chọn fit_level lặp lại được khi resume")
+    # Chỉ giữ tham số THỰC SỰ thay đổi giữa các lần chạy. Số CV mỗi JD là thứ
+    # đáng chỉnh nhất: tăng từ 2 lên 5 sẽ cho gấp 10 số cặp để đo xếp hạng.
+    parser.add_argument("--per_jd", type=int, default=2, help="số CV sinh cho mỗi JD")
     args = parser.parse_args()
 
-    jds = load_jds(Path(args.jd_file))
-    print(f"[i] Đã đọc {len(jds)} JD từ {args.jd_file}")
+    jds = load_jds(JD_FILE)
+    print(f"[i] Đã đọc {len(jds)} JD từ {JD_FILE}")
 
-    out_path = Path(args.out)
+    out_path = OUT_FILE
     done_pairs = already_done_pairs(out_path)
     if done_pairs:
         print(f"[i] Đã có {len(done_pairs)} cặp (jd_id, fit_level) trong {out_path}, sẽ bỏ qua các cặp này.")
 
     client = Anthropic()
 
-    rng = random.Random(args.seed)
+    rng = random.Random(RANDOM_SEED)
 
     total_generated = 0
     with open(out_path, "a", encoding="utf-8") as f:
@@ -173,7 +179,7 @@ def main():
                 total_generated += 1
                 print(f"[{total_generated}] {jd_id} | {fit_level} | {jd.get('role')}")
 
-                time.sleep(args.delay)
+                time.sleep(DELAY_SECONDS)
 
     print(f"\nXong. Tổng số CV mới sinh: {total_generated}")
     print(f"Tổng số dòng hiện có trong {out_path}: {len(already_done_pairs(out_path))}")

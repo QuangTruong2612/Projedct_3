@@ -12,22 +12,40 @@ Các hằng số trong file này được HIỆU CHỈNH TỪ DỮ LIỆU chứ 
 
 import re
 import unicodedata
+from dataclasses import dataclass, field
 
 from app.core.embedding_config import BaseEmbeddingClient, cosine_similarity
 from app.core.settings import ModelSettings
-from app.schemas.models import CriterionScore, MatchResult, ParsedCV, ParsedJD
+from app.schemas.models import (
+    DEGREE_RANK_FOR_RANKER,
+    CriterionScore,
+    DataCompleteness,
+    MatchResult,
+    ParsedCV,
+    ParsedJD,
+    SkillImpact,
+)
 
-DEGREE_RANK = {
-    "high school": 1,
-    "associate": 2,
-    "bachelor": 3,
-    "master": 4,
-    "phd": 5,
-}
+# Alias giữ nguyên tên cũ để run_distillation.py và test không phải sửa
+DEGREE_RANK = DEGREE_RANK_FOR_RANKER
 
 # Chuỗi ngắn hơn ngưỡng này không được phép khớp kiểu "nằm trong chuỗi kia",
 # nếu không "R" sẽ khớp vào mọi kỹ năng có chữ r, "Go" khớp vào "MongoDB"...
 MIN_LEXICAL_LEN = 3
+
+# Trọng số giữa kỹ năng bắt buộc và kỹ năng ưu tiên trong điểm skills.
+# Tách thành hằng số vì phần phân tích phản thực cần dùng lại đúng con số này.
+REQUIRED_WEIGHT = 0.8
+PREFERRED_WEIGHT = 0.2
+
+
+@dataclass
+class SkillCoverage:
+    """Kết quả so khớp một danh sách kỹ năng JD với pool bằng chứng của CV."""
+
+    ratio: float                                   # độ phủ trung bình 0-1
+    clear_matches: int                             # số kỹ năng khớp rõ ràng
+    per_skill: dict[str, float] = field(default_factory=dict)  # kỹ năng -> độ phủ
 
 
 def _normalize(text: str) -> str:
@@ -85,8 +103,8 @@ class MatchingService:
 
     def _skill_coverage(
         self, cv_skills: list[str], target_skills: list[str]
-    ) -> tuple[float, int]:
-        """Trả về (điểm phủ 0-1, số kỹ năng khớp rõ).
+    ) -> SkillCoverage:
+        """Đo mức độ CV đáp ứng từng kỹ năng trong danh sách JD yêu cầu.
 
         Với mỗi kỹ năng JD yêu cầu:
         - khớp được về mặt chữ  -> 1.0 (chắc chắn đúng)
@@ -94,28 +112,51 @@ class MatchingService:
 
         Dùng điểm liên tục thay vì đếm nhị phân qua một ngưỡng: cách cũ coi
         0.849 và 0.20 đều là 0 điểm, làm mất gần hết thông tin.
+
+        Giữ lại độ phủ CỦA TỪNG kỹ năng (`per_skill`) để phần phân tích phản
+        thực biết chính xác ứng viên đang hụt ở đâu.
         """
-        if not target_skills:
-            return 1.0, 0
+        # Khử trùng lặp TRƯỚC khi tính: JD viết lặp một kỹ năng ("Python" xuất
+        # hiện 2 lần) không được phép làm thay đổi điểm của ứng viên. Nếu không
+        # khử, `per_skill` (dict) gộp lại còn 1 mục trong khi mẫu số vẫn đếm 2
+        # -> ứng viên bị trừ điểm oan.
+        # Chỉ so theo chữ thường đã trim, KHÔNG dùng _normalize() vì nó sẽ gộp
+        # nhầm "C++" với "C".
+        targets: list[str] = []
+        seen: set[str] = set()
+        for t in target_skills:
+            key = t.strip().lower()
+            if key and key not in seen:
+                seen.add(key)
+                targets.append(t)
+
+        if not targets:
+            return SkillCoverage(ratio=1.0, clear_matches=0)
         if not cv_skills:
-            return 0.0, 0
+            return SkillCoverage(
+                ratio=0.0, clear_matches=0, per_skill={t: 0.0 for t in targets}
+            )
 
         cv_vectors = self.embedder.embed(cv_skills)
-        target_vectors = self.embedder.embed(target_skills)
+        target_vectors = self.embedder.embed(targets)
 
-        total = 0.0
+        per_skill: dict[str, float] = {}
         clear_matches = 0
-        for target, t_vec in zip(target_skills, target_vectors):
+        for target, t_vec in zip(targets, target_vectors):
             if any(_lexical_match(target, c) for c in cv_skills):
-                total += 1.0
+                per_skill[target] = 1.0
                 clear_matches += 1
                 continue
             best = self._best_similarity(target, cv_vectors, t_vec)
             if best >= self.settings.skill_match_threshold:
                 clear_matches += 1
-            total += self._rescale(best)
+            per_skill[target] = self._rescale(best)
 
-        return total / len(target_skills), clear_matches
+        return SkillCoverage(
+            ratio=sum(per_skill.values()) / len(targets),
+            clear_matches=clear_matches,
+            per_skill=per_skill,
+        )
 
     def _score_skills(self, cv: ParsedCV, jd: ParsedJD) -> CriterionScore:
         # Gộp skill khai báo trực tiếp + skill dùng trong project làm 1 "pool"
@@ -128,17 +169,77 @@ class MatchingService:
         required_skills = jd.require_skills
         preferred_skills = jd.preferred_skills
 
-        required_ratio, required_hits = self._skill_coverage(all_skill_evidence, required_skills)
-        preferred_ratio, preferred_hits = self._skill_coverage(all_skill_evidence, preferred_skills)
+        required = self._skill_coverage(all_skill_evidence, required_skills)
+        preferred = self._skill_coverage(all_skill_evidence, preferred_skills)
 
-        score = 0.8 * required_ratio + 0.2 * preferred_ratio
+        score = REQUIRED_WEIGHT * required.ratio + PREFERRED_WEIGHT * preferred.ratio
+
+        # Không trích được kỹ năng nào -> điểm 0 là do THIẾU DỮ LIỆU, không phải
+        # do ứng viên kém. Đánh dấu để HR biết đừng tin con số này.
+        if not all_skill_evidence:
+            return CriterionScore(
+                criterion="skills",
+                score=round(score, 3),
+                detail="Không trích được kỹ năng nào từ CV (có thể do CV scan ảnh hoặc định dạng lạ)",
+                missing_data=True,
+            )
+
         detail = (
-            f"Khớp rõ {required_hits}/{len(required_skills)} kỹ năng bắt buộc, "
-            f"{preferred_hits}/{len(preferred_skills)} kỹ năng ưu tiên; "
-            f"độ phủ bắt buộc {required_ratio:.2f} "
+            f"Khớp rõ {required.clear_matches}/{len(required_skills)} kỹ năng bắt buộc, "
+            f"{preferred.clear_matches}/{len(preferred_skills)} kỹ năng ưu tiên; "
+            f"độ phủ bắt buộc {required.ratio:.2f} "
             f"(tính cả kỹ năng thể hiện qua {len(cv.projects)} project)"
         )
         return CriterionScore(criterion="skills", score=round(score, 3), detail=detail)
+
+    def skill_gap_impact(
+        self, cv: ParsedCV, jd: ParsedJD, top_n: int = 5
+    ) -> list[SkillImpact]:
+        """Phân tích phản thực: bổ sung kỹ năng nào thì điểm tổng tăng nhiều nhất.
+
+        Tính THẲNG BẰNG CÔNG THỨC chứ không chạy lại pipeline cho từng kỹ năng.
+        Điểm skills là trung bình có trọng số của độ phủ từng kỹ năng, nên nếu
+        một kỹ năng đi từ độ phủ `c` lên 1.0 thì:
+
+            điểm tổng tăng = w_skills x REQUIRED_WEIGHT x (1 - c) / n x 100
+
+        Cách này vừa chính xác tuyệt đối vừa không tốn thêm lần embed nào.
+
+        Trả về danh sách đã sắp theo mức tăng giảm dần; kỹ năng đã đáp ứng
+        đầy đủ thì không xuất hiện.
+        """
+        project_skills = [sk for pr in cv.projects for sk in pr.tech_stack]
+        evidence = list(set(cv.skills + project_skills))
+
+        w_skills = jd.weights.get("skills", 0.5)
+        impacts: list[SkillImpact] = []
+
+        for targets, group_weight, is_required in (
+            (jd.require_skills, REQUIRED_WEIGHT, True),
+            (jd.preferred_skills, PREFERRED_WEIGHT, False),
+        ):
+            if not targets:
+                continue
+            coverage = self._skill_coverage(evidence, targets)
+            # Mẫu số phải là số kỹ năng SAU khi khử trùng lặp, đúng bằng mẫu số
+            # mà _skill_coverage dùng để tính ratio -- nếu lấy len(targets) thô
+            # thì mức tăng dự đoán sẽ sai khi JD có kỹ năng viết lặp.
+            n_targets = len(coverage.per_skill)
+            for skill, current in coverage.per_skill.items():
+                if current >= 0.999:  # đã đáp ứng, bổ sung cũng không tăng thêm
+                    continue
+                gain = w_skills * group_weight * (1.0 - current) / n_targets * 100
+                impacts.append(
+                    SkillImpact(
+                        skill=skill,
+                        current_coverage=round(current, 3),
+                        score_gain=round(gain, 2),
+                        is_required=is_required,
+                    )
+                )
+
+        impacts.sort(key=lambda i: i.score_gain, reverse=True)
+        return impacts[:top_n]
 
     # ------------------------------------------------------------------ experience
 
@@ -207,7 +308,13 @@ class MatchingService:
             f"(yêu cầu tối thiểu {jd.min_experience_years} năm), "
             f"độ liên quan theo {source}: {relevance:.2f}"
         )
-        return CriterionScore(criterion="experience", score=round(score, 3), detail=detail)
+        # Không có mục kinh nghiệm lẫn project -> không đủ căn cứ để chấm
+        missing = not cv.work_experiences and not cv.projects
+        if missing:
+            detail = "CV không có mục kinh nghiệm làm việc lẫn dự án -- không đủ căn cứ để đánh giá"
+        return CriterionScore(
+            criterion="experience", score=round(score, 3), detail=detail, missing_data=missing
+        )
 
     # ------------------------------------------------------------------ education
 
@@ -227,7 +334,10 @@ class MatchingService:
         # ParseCV dùng 'educations' (có 's')
         if not cv.educations:
             return CriterionScore(
-                criterion="education", score=0.0, detail="CV không có thông tin học vấn"
+                criterion="education",
+                score=0.0,
+                detail="CV không có thông tin học vấn -- điểm 0 này là do thiếu dữ liệu, không phải do không đạt yêu cầu",
+                missing_data=True,
             )
 
         # Ứng viên có thể có nhiều bằng (Bachelor, Master...) -> lấy bằng cao nhất
@@ -242,6 +352,30 @@ class MatchingService:
         return CriterionScore(criterion="education", score=round(score, 3), detail=detail)
 
     # ------------------------------------------------------------------ tổng hợp
+
+    def _completeness(self, cv: ParsedCV) -> DataCompleteness:
+        """Đo xem trích được bao nhiêu phần của CV, để cảnh báo khi điểm số
+        có thể không đáng tin."""
+        has_skills = bool(cv.skills or any(p.tech_stack for p in cv.projects))
+        has_experience = bool(cv.work_experiences or cv.projects)
+        has_education = bool(cv.educations)
+
+        warnings: list[str] = []
+        if not has_skills:
+            warnings.append("Không trích được kỹ năng nào")
+        if not has_experience:
+            warnings.append("Không trích được kinh nghiệm làm việc hay dự án nào")
+        if not has_education:
+            warnings.append("Không trích được thông tin học vấn")
+
+        found = sum([has_skills, has_experience, has_education])
+        return DataCompleteness(
+            has_skills=has_skills,
+            has_experience=has_experience,
+            has_education=has_education,
+            score=round(found / 3, 3),
+            warnings=warnings,
+        )
 
     def match(self, cv: ParsedCV, jd: ParsedJD, cv_id: str, jd_id: str) -> MatchResult:
         skill_cs = self._score_skills(cv, jd)
@@ -259,4 +393,5 @@ class MatchingService:
             jd_id=jd_id,
             criterion_scores=[skill_cs, exp_cs, edu_cs],
             rule_based_score=round(weighted_sum * 100, 1),
+            completeness=self._completeness(cv),
         )

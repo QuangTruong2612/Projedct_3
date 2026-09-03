@@ -14,7 +14,6 @@ from contextlib import asynccontextmanager  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
-from fastapi.responses import FileResponse  # noqa: E402
 
 from app.api.routers import get_pipeline, router  # noqa: E402
 
@@ -68,4 +67,4 @@ FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "fronten
 
 if os.path.exists(FRONTEND_DIR):
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="static")
-
+

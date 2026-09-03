@@ -32,5 +32,12 @@ sqlalchemy==2.0.35
 psycopg2-binary==2.9.9
 pgvector==0.3.4
 
+# ==== Huấn luyện/đánh giá model xếp hạng (train_ranker.py) ====
+scikit-learn==1.5.2
+
 # ==== Testing (khuyến nghị cho phần đánh giá độ chính xác) ====
 pytest==8.3.3
+
+# ==== Crawl frame work
+requests
+beautifulsoup4
