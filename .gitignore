@@ -11,12 +11,16 @@ __pycache__/
 venv/
 env/
 
-# Dataset sinh ra (khá lớn, không nên commit) — bỏ comment nếu muốn track
-# jd_synthetic.jsonl
-# cv_synthetic.jsonl
-# training_data.csv
+# Mặc định bỏ qua .jsonl (file dataset thường rất lớn)
 *.jsonl
 !sample_*.jsonl
+
+# NHƯNG phải giữ lại các file dưới đây — chúng là ĐẦU VÀO và KẾT QUẢ GỌI LLM
+# đã trả tiền để sinh ra, không tái tạo được nếu không có API key.
+# Tổng cộng ~1.9MB, hoàn toàn ổn với git. Toàn bộ là dữ liệu hư cấu.
+!cv_synthetic.jsonl
+!jd_synthetic.jsonl
+!data/*.jsonl
 
 # File CV/JD upload thật (chứa PII, không nên commit)
 *.pdf
