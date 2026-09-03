@@ -287,3 +287,191 @@ def test_match_tong_hop_theo_trong_so_cua_jd(svc):
 
     assert result.rule_based_score == pytest.approx(100.0)
     assert [c.criterion for c in result.criterion_scores] == ["skills", "experience", "education"]
+
+
+# ---------------------------------------------------------------- thiếu dữ liệu
+
+def test_cv_khong_co_hoc_van_duoc_danh_dau_thieu_du_lieu(svc):
+    """Điểm 0 vì THIẾU DỮ LIỆU phải phân biệt được với điểm 0 vì KHÔNG ĐẠT.
+    Trước đây cả hai đều trả 0.0 và HR không có cách nào biết."""
+    cs = svc._score_education(make_cv(), make_jd(required_degree="Bachelor"))
+    assert cs.score == 0.0
+    assert cs.missing_data is True
+
+
+def test_bang_cap_thap_hon_yeu_cau_khong_phai_thieu_du_lieu(svc):
+    cv = make_cv(educations=[Education(degree="Associate", major="CNTT")])
+    cs = svc._score_education(cv, make_jd(required_degree="Bachelor"))
+    assert cs.missing_data is False  # có dữ liệu, chỉ là chưa đạt
+
+
+def test_cv_khong_trich_duoc_ky_nang_bi_danh_dau(svc):
+    cs = svc._score_skills(make_cv(), make_jd(require_skills=["Docker"]))
+    assert cs.missing_data is True
+    assert "scan ảnh" in cs.detail
+
+
+def test_cv_khong_co_kinh_nghiem_lan_project_bi_danh_dau(svc):
+    cs = svc._score_experience(make_cv(), make_jd(min_experience_years=2))
+    assert cs.missing_data is True
+
+
+def test_cv_day_du_thi_khong_co_canh_bao(svc):
+    cv = make_cv(
+        skills=["Docker"],
+        total_experience_year=2.0,
+        work_experiences=[ExperienceWork(job_title="Backend Developer", duration_work=2.0)],
+        educations=[Education(degree="Bachelor", major="CNTT")],
+    )
+    c = svc._completeness(cv)
+    assert c.score == 1.0
+    assert c.warnings == []
+    assert c.is_reliable is True
+
+
+def test_cv_rong_hoan_toan_bi_canh_bao_du_ba_muc(svc):
+    c = svc._completeness(make_cv())
+    assert c.score == 0.0
+    assert len(c.warnings) == 3
+    assert c.is_reliable is False
+
+
+def test_ky_nang_tu_project_van_tinh_la_co_du_lieu(svc):
+    cv = make_cv(projects=[Project(project_title="P", tech_stack=["Docker"])])
+    c = svc._completeness(cv)
+    assert c.has_skills is True
+    assert c.has_experience is True   # project cũng là bằng chứng kinh nghiệm
+    assert c.has_education is False
+
+
+def test_match_tra_kem_completeness(svc):
+    result = svc.match(make_cv(), make_jd(require_skills=["Docker"]), cv_id="c", jd_id="j")
+    assert result.completeness is not None
+    assert result.completeness.score == 0.0
+    assert any(c.missing_data for c in result.criterion_scores)
+
+
+# ---------------------------------------------------------------- phân tích phản thực
+
+def test_ky_nang_hut_nhieu_nhat_duoc_xep_dau(svc):
+    """Kỹ năng nào bù vào làm điểm tăng nhiều nhất phải đứng đầu danh sách."""
+    jd = make_jd(
+        require_skills=["Docker", "Kubernetes", "Kafka"],
+        weights={"skills": 1.0, "experience": 0.0, "education": 0.0},
+    )
+    svc.set_sim("Kubernetes", "Docker", 0.90)  # hụt một nửa: (0.90-0.80)/0.20 = 0.5
+    svc.set_sim("Kafka", "Docker", 0.80)       # hụt hoàn toàn
+
+    gaps = svc.skill_gap_impact(make_cv(skills=["Docker"]), jd)
+    assert [g.skill for g in gaps] == ["Kafka", "Kubernetes"]
+    assert gaps[0].score_gain > gaps[1].score_gain
+
+
+def test_ky_nang_da_dap_ung_khong_xuat_hien(svc):
+    cv = make_cv(skills=["Docker"])
+    jd = make_jd(require_skills=["Docker", "Kafka"])
+    svc.set_sim("Kafka", "Docker", 0.80)
+
+    assert "Docker" not in [g.skill for g in svc.skill_gap_impact(cv, jd)]
+
+
+def test_muc_tang_diem_tinh_dung_cong_thuc(svc):
+    """1 trong 2 kỹ năng bắt buộc hụt hoàn toàn, trọng số skills = 0.5.
+    Bù vào -> điểm tổng tăng 0.5 x 0.8 x 1.0 / 2 x 100 = 20 điểm."""
+    cv = make_cv(skills=["Docker"])
+    jd = make_jd(
+        require_skills=["Docker", "Kafka"],
+        weights={"skills": 0.5, "experience": 0.3, "education": 0.2},
+    )
+    svc.set_sim("Kafka", "Docker", 0.80)
+
+    gaps = svc.skill_gap_impact(cv, jd)
+    assert gaps[0].skill == "Kafka"
+    assert gaps[0].score_gain == pytest.approx(20.0)
+
+
+def test_muc_tang_khop_voi_diem_thuc_te_khi_bo_sung(svc):
+    """Kiểm chứng chéo: con số dự đoán phải khớp với việc thật sự thêm kỹ năng
+    vào CV rồi chấm lại."""
+    cv = make_cv(skills=["Docker"])
+    jd = make_jd(
+        require_skills=["Docker", "Kafka"],
+        weights={"skills": 0.5, "experience": 0.3, "education": 0.2},
+    )
+    svc.set_sim("Kafka", "Docker", 0.80)
+
+    truoc = svc.match(cv, jd, cv_id="c", jd_id="j").rule_based_score
+    du_doan = svc.skill_gap_impact(cv, jd)[0].score_gain
+
+    cv_bo_sung = make_cv(skills=["Docker", "Kafka"])
+    sau = svc.match(cv_bo_sung, jd, cv_id="c", jd_id="j").rule_based_score
+
+    assert sau - truoc == pytest.approx(du_doan, abs=0.2)
+
+
+def test_ky_nang_uu_tien_cung_duoc_tinh_nhung_trong_so_thap_hon(svc):
+    cv = make_cv(skills=["Docker"])
+    jd = make_jd(
+        require_skills=["Docker"],
+        preferred_skills=["Kafka"],
+        weights={"skills": 1.0, "experience": 0.0, "education": 0.0},
+    )
+    svc.set_sim("Kafka", "Docker", 0.80)
+
+    gaps = svc.skill_gap_impact(cv, jd)
+    assert len(gaps) == 1
+    assert gaps[0].skill == "Kafka"
+    assert gaps[0].is_required is False
+
+
+def test_gioi_han_so_luong_tra_ve(svc):
+    cv = make_cv(skills=[])
+    jd = make_jd(require_skills=[f"KN{i}" for i in range(10)])
+    assert len(svc.skill_gap_impact(cv, jd, top_n=3)) == 3
+
+
+def test_jd_khong_yeu_cau_ky_nang_thi_khong_co_gap(svc):
+    assert svc.skill_gap_impact(make_cv(skills=["X"]), make_jd()) == []
+
+
+# ---------------------------------------------------------------- kỹ năng trùng trong JD
+
+def test_jd_viet_lap_ky_nang_khong_lam_thay_doi_diem(svc):
+    """JD ghi "Python" hai lần là lỗi soạn thảo, không được phép trừ điểm
+    ứng viên. Trước khi sửa: per_skill gộp còn 2 mục nhưng mẫu số vẫn đếm 3
+    -> ratio 0.333 thay vì 0.5."""
+    cv = make_cv(skills=["Python"])
+    khong_lap = make_jd(require_skills=["Python", "SQL"])
+    co_lap = make_jd(require_skills=["Python", "Python", "SQL"])
+
+    assert svc._score_skills(cv, khong_lap).score == svc._score_skills(cv, co_lap).score
+
+
+def test_khu_trung_lap_khong_phan_biet_hoa_thuong(svc):
+    cov = svc._skill_coverage(["Python"], ["Python", "python", "PYTHON", "SQL"])
+    assert len(cov.per_skill) == 2
+    assert cov.ratio == pytest.approx(0.5)
+    assert cov.clear_matches == 1
+
+
+def test_khong_gop_nham_cpp_voi_c(svc):
+    """Khử trùng lặp dùng .lower() chứ không dùng _normalize(), nếu không
+    "C++" và "C" sẽ bị gộp làm một."""
+    cov = svc._skill_coverage(["Java"], ["C++", "C"])
+    assert len(cov.per_skill) == 2
+
+
+def test_muc_tang_diem_van_dung_khi_jd_co_ky_nang_lap(svc):
+    """Mẫu số của skill_gap_impact phải khớp với mẫu số của _skill_coverage."""
+    cv = make_cv(skills=["Docker"])
+    jd = make_jd(
+        require_skills=["Docker", "Docker", "Kafka"],
+        weights={"skills": 0.5, "experience": 0.3, "education": 0.2},
+    )
+    svc.set_sim("Kafka", "Docker", 0.80)
+
+    truoc = svc.match(cv, jd, cv_id="c", jd_id="j").rule_based_score
+    du_doan = svc.skill_gap_impact(cv, jd)[0].score_gain
+    sau = svc.match(make_cv(skills=["Docker", "Kafka"]), jd, cv_id="c", jd_id="j").rule_based_score
+
+    assert sau - truoc == pytest.approx(du_doan, abs=0.2)

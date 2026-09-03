@@ -15,7 +15,6 @@ Cách dùng (từ thư mục gốc project, nơi có folder `app/` và file `.en
         --cv_file cv_synthetic.jsonl --out training_data.csv
 """
 
-import argparse
 import csv
 import json
 import sys
@@ -29,6 +28,12 @@ load_dotenv()  # đọc .env của project (API key, LLM_PROVIDER...) TRƯỚC k
 from app.core.settings import ModelSettings  # noqa: E402
 from app.services.matching_service import DEGREE_RANK  # noqa: E402
 from app.services.pipeline import RecruitmentPipeline  # noqa: E402
+
+JD_FILE = Path("jd_synthetic.jsonl")
+CV_FILE = Path("cv_synthetic.jsonl")
+OUT_FILE = Path("training_data.csv")
+# Nghỉ giữa 2 lượt gọi LLM để không chạm rate limit của provider
+DELAY_SECONDS = 0.5
 
 FIELDNAMES = [
     "cv_id", "jd_id", "jd_role", "fit_level_intended",
@@ -92,18 +97,11 @@ def build_row(cv: dict, jd: dict, result) -> dict:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--jd_file", default="jd_synthetic.jsonl")
-    parser.add_argument("--cv_file", default="cv_synthetic.jsonl")
-    parser.add_argument("--out", default="training_data.csv")
-    parser.add_argument("--delay", type=float, default=0.5, help="nghỉ giữa 2 lần gọi LLM (giây)")
-    args = parser.parse_args()
-
-    jds = {jd["id"]: jd for jd in load_jsonl(Path(args.jd_file))}
-    cvs = load_jsonl(Path(args.cv_file))
+    jds = {jd["id"]: jd for jd in load_jsonl(JD_FILE)}
+    cvs = load_jsonl(CV_FILE)
     print(f"[i] Đọc {len(jds)} JD, {len(cvs)} CV từ file input.")
 
-    out_path = Path(args.out)
+    out_path = OUT_FILE
     done_ids = already_done_cv_ids(out_path)
     if done_ids:
         print(f"[i] Đã có {len(done_ids)} CV trong {out_path}, sẽ bỏ qua.")
@@ -154,7 +152,7 @@ def main() -> None:
                 f"(rule_based={result.rule_based_score}, intended={cv.get('fit_level')})"
             )
 
-            time.sleep(args.delay)
+            time.sleep(DELAY_SECONDS)
 
     print(f"\nXong. Đã ghi thêm {processed} dòng vào {out_path}.")
     if failed:

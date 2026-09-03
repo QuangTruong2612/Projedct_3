@@ -126,14 +126,19 @@ def already_done(out_path: Path) -> int:
         return sum(1 for _ in f)
 
 
+OUT_FILE = Path("jd_synthetic.jsonl")
+# Nghỉ giữa 2 lượt gọi API để không chạm rate limit
+DELAY_SECONDS = 0.5
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--count", type=int, default=200)
-    parser.add_argument("--out", default="jd_synthetic.jsonl")
-    parser.add_argument("--delay", type=float, default=0.5, help="giây nghỉ giữa các request")
+    # Chỉ giữ tham số THỰC SỰ thay đổi giữa các lần chạy; đường dẫn và độ trễ
+    # là hằng số của dự án (xem OUT_FILE / DELAY_SECONDS).
+    parser.add_argument("--count", type=int, default=200, help="số JD cần sinh")
     args = parser.parse_args()
 
-    out_path = Path(args.out)
+    out_path = OUT_FILE
     start_idx = already_done(out_path)  # cho phép chạy tiếp nếu bị dừng giữa chừng
     if start_idx:
         print(f"[i] Đã có {start_idx} JD trong {out_path}, tiếp tục sinh thêm...")
@@ -168,7 +173,7 @@ def main():
             f.flush()
             print(f"[{i+1}/{args.count}] {role} | {seniority} | {domain}")
 
-            time.sleep(args.delay)
+            time.sleep(DELAY_SECONDS)
 
     print(f"\nXong. Tổng số JD trong {out_path}: {already_done(out_path)}")
 

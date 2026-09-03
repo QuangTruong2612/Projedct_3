@@ -41,6 +41,12 @@ class ModelSettings:
     experience_relevance_base: float = 0.3
     max_input_tokens: int = 4000
 
+    # Model xếp hạng đã train (train_ranker.py). Để trống thì tắt bộ lọc rẻ.
+    ranker_model_path: str = "train/extratrees.pkl"
+    # Chỉ gọi LLM chấm điểm cho top-K hồ sơ theo điểm mô hình; 0 = tắt, chấm
+    # bằng LLM cho tất cả như trước.
+    ranker_prefilter_top_k: int = 0
+
     # Số CV được xử lý song song trong /rank. Mỗi luồng gọi LLM riêng nên
     # đặt quá cao dễ chạm rate limit của provider.
     rank_max_workers: int = 4
@@ -105,9 +111,22 @@ class ModelSettings:
         except ValueError:
             self.max_input_tokens = 4000
 
+        self.ranker_model_path = (
+            os.getenv("RANKER_MODEL_PATH")
+            if os.getenv("RANKER_MODEL_PATH") is not None
+            else "train/extratrees.pkl"
+        )
+
+        try:
+            topk_val = os.getenv("RANKER_PREFILTER_TOP_K")
+            self.ranker_prefilter_top_k = int(topk_val) if topk_val and topk_val.strip() else 0
+        except ValueError:
+            self.ranker_prefilter_top_k = 0
+        self.ranker_prefilter_top_k = max(0, self.ranker_prefilter_top_k)
+
         try:
             workers_val = os.getenv("RANK_MAX_WORKERS")
             self.rank_max_workers = int(workers_val) if workers_val and workers_val.strip() else 4
         except ValueError:
             self.rank_max_workers = 4
-        self.rank_max_workers = max(1, self.rank_max_workers)
+        self.rank_max_workers = max(1, self.rank_max_workers)
